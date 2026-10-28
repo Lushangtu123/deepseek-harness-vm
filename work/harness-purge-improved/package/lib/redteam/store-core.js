@@ -48,7 +48,7 @@ import {
   normalizePort, targetAuthority, systemKeyOf, pickBestHit, legacyCapGroup, targetHasIpv6Host,
 } from './score-rules.js'
 import {
-  platformSummary, savePlatformConfig, assignToolkitFolder, loadPlatformConfig, nucleiTemplatesDirOf,
+  platformSummary, platformSaveResult, savePlatformConfig, assignToolkitFolder, loadPlatformConfig, nucleiTemplatesDirOf,
 } from './platform-config.js'
 
 /* 再导出：core.js 的对外导出面与拆分前完全一致（调用方零改动） */
@@ -767,10 +767,7 @@ function dispatchRaw(store, req = {}) {
     if (op === 'templateStats') return { ok: true, stats: store.templateStats() }
     /* 环境适配：全局，不依赖靶标；面板 / CLI / 工具共用 */
     if (op === 'platformConfigGet') return platformSummary(store.root)
-    if (op === 'platformConfigSave') {
-      savePlatformConfig(req.config || {}, store.root)
-      return platformSummary(store.root)
-    }
+    if (op === 'platformConfigSave') return platformSaveResult(req, store.root)
     if (op === 'platformAssignToolkit') return assignToolkitFolder(req.dir, store.root)
     /* 没选靶标时：提示词回内置默认；只读查询回空结果。不要抛英文 engagement required。 */
     let id = typeof req.engagement === 'string' ? req.engagement.trim() : ''

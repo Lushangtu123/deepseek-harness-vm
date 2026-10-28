@@ -28,7 +28,7 @@ import { checkSkill, officialSkillSummaries, skillLibraryOf, summarizeSkills } f
 import { configuredLimit, maxAgentsOf, maxAgentsSourceOf, saveMaxAgents, DEFAULT_MAX_AGENTS, MAX_AGENTS_LIMIT } from './settings.js'
 import {
   loadPlatformConfig, mergeConfigEnv, redteamRoot, envAdaptStatus, markEnvAdaptSkip,
-  platformSummary, savePlatformConfig, assignToolkitFolder,
+  platformSummary, platformSaveResult, savePlatformConfig, assignToolkitFolder,
 } from './platform-config.js'
 
 /** DSH_HOME：显式环境变量优先；Windows 上 HOME 常空，回退 homedir()。 */
@@ -290,10 +290,7 @@ function handlePlatformOp(store, request) {
     return Object.assign({ ok: true }, markEnvAdaptSkip(root, request.skip === undefined ? true : !!request.skip))
   }
   if (op === 'platformConfigGet') return platformSummary(root)
-  if (op === 'platformConfigSave') {
-    savePlatformConfig(request.config || {}, root)
-    return platformSummary(root)
-  }
+  if (op === 'platformConfigSave') return platformSaveResult(request, root)
   return assignToolkitFolder(request.dir, root)
 }
 

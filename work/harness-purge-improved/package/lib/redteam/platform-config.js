@@ -9,7 +9,7 @@
  *
  * 借鉴 Z3r0：系统配置集中、可在 UI 里改（FOFA / 路径类），而不是只靠 shell 引导。
  */
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync, lstatSync, mkdtempSync, fchmodSync, fsyncSync, renameSync, rmSync } from 'node:fs'
 import { homedir, platform as osPlatform } from 'node:os'
 import { delimiter, isAbsolute, join, resolve, sep } from 'node:path'
 
@@ -81,12 +81,28 @@ function isWinLike(cfg) {
   return osPlatform() === 'win32'
 }
 
+function validPlatformConfig(raw) {
+  const record = v => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (!record(raw) || (raw.version != null && (!['number', 'string'].includes(typeof raw.version) || Number(raw.version) !== 1))
+      || ['tools', 'env'].some(k => raw[k] != null && !record(raw[k]))
+      || ['tools', 'env'].some(k => raw[k] != null && Object.values(raw[k]).some(v => v != null && typeof v !== 'string'))
+      || (raw.binDirs != null && (!Array.isArray(raw.binDirs) || raw.binDirs.some(v => typeof v !== 'string')))
+      || ['envAdaptSkip', 'envAdaptConfigured'].some(k => raw[k] != null && typeof raw[k] !== 'boolean')
+      || ['toolkitDir', 'nucleiTemplatesDir', 'notes'].some(k => raw[k] != null && typeof raw[k] !== 'string')
+      || (raw.platform != null && !['auto', 'windows', 'linux'].includes(raw.platform))) return false
+  return true
+}
+
 export function loadPlatformConfig(root) {
   const base = EMPTY()
   const file = configPathOf(root)
-  if (!existsSync(file)) return Object.assign({}, base, { path: file, exists: false })
+  let observed = false
   try {
+    const info = lstatSync(file)
+    observed = true
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('unsupported-config-file')
     const raw = JSON.parse(readFileSync(file, 'utf8'))
+    if (!validPlatformConfig(raw)) throw new Error('invalid-config-shape')
     const tools = Object.assign({}, base.tools, raw.tools && typeof raw.tools === 'object' ? raw.tools : {})
     const env = Object.assign({}, base.env, raw.env && typeof raw.env === 'object' ? raw.env : {})
     const binDirs = Array.isArray(raw.binDirs)
@@ -106,20 +122,22 @@ export function loadPlatformConfig(root) {
       updated_at: raw.updated_at || null,
       path: file,
       exists: true,
+      readState: 'ready',
     }
   } catch (error) {
-    return Object.assign({}, base, {
-      path: file,
-      exists: true,
-      error: error && error.message ? error.message : String(error),
-    })
+    if (error?.code === 'ENOENT' && !observed) return { ...base, path: file, exists: false, readState: 'missing' }
+    return { ...base, path: file, exists: true, readState: 'error', errorCode: 'platform-config-unavailable',
+      error: '现有环境配置读取未确认，已暂停修改。请检查原文件或从备份恢复。' }
+
   }
 }
 
 export function savePlatformConfig(patch, root) {
+  if (!validPlatformConfig(patch)) throw new Error('环境配置输入结构无效，未执行保存。')
   const dir = root || redteamRoot()
   mkdirSync(dir, { recursive: true })
   const prev = loadPlatformConfig(dir)
+  if (prev.error) throw new Error(prev.error)
   const next = {
     version: 1,
     platform: ['auto', 'windows', 'linux'].includes(patch.platform) ? patch.platform : (prev.platform || 'auto'),
@@ -144,9 +162,46 @@ export function savePlatformConfig(patch, root) {
     if (next.tools[t.id] === undefined || next.tools[t.id] === null) next.tools[t.id] = ''
     else next.tools[t.id] = String(next.tools[t.id]).trim()
   }
+  if (!validPlatformConfig(next)) throw new Error('环境配置输入结构无效，未执行保存。')
   const file = configPathOf(dir)
-  writeFileSync(file, JSON.stringify(next, null, 2), 'utf8')
-  return loadPlatformConfig(dir)
+  const raw = JSON.stringify(next, null, 2)
+  const mode = prev.exists ? lstatSync(file).mode & 0o777 : 0o600
+  const temporary = mkdtempSync(join(dir, '.config-save-'))
+  const candidate = join(temporary, 'config.json')
+  let fd
+  try {
+    fd = openSync(candidate, 'wx', 0o600)
+    writeFileSync(fd, raw, 'utf8'); fchmodSync(fd, mode); fsyncSync(fd)
+    if (readFileSync(candidate, 'utf8') !== raw) throw new Error('环境配置暂存核对失败；原文件保持。')
+    JSON.parse(raw)
+    closeSync(fd); fd = undefined
+    renameSync(candidate, file)
+    // The replacement is committed. A later sync/read failure is an unknown result,
+    // never a reason to replay or replace the original file with guessed defaults.
+    if (process.platform !== 'win32') {
+      const parent = openSync(dir, 'r')
+      try { fsyncSync(parent) } finally { closeSync(parent) }
+    }
+    if (readFileSync(file, 'utf8') !== raw) throw new Error('环境配置保存结果未确认，请只读核对。')
+    const saved = loadPlatformConfig(dir)
+    if (saved.error) throw new Error(saved.error)
+    return saved
+  } finally {
+    try { if (fd !== undefined) closeSync(fd) }
+    finally { rmSync(temporary, { recursive: true, force: true }) }
+  }
+}
+
+/** Correlate a completed save without exposing input values in its receipt. */
+export function platformSaveResult(request, root) {
+  const id = request.operationId
+  if (id !== undefined && (typeof id !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(id))) throw new Error('环境配置请求标识无效，未执行保存。')
+  const config = savePlatformConfig(request.config || {}, root)
+  const summary = platformSummary(root)
+  if (!summary.ok) return summary
+  return { ...summary, config, ...(id === undefined ? {} : {
+    writeReceipt: { operationId: id, op: 'platformConfigSave', state: 'committed' },
+  }) }
 }
 
 /** 生效的工具箱根。 */
@@ -320,6 +375,7 @@ export function mergeConfigEnv(effectiveEnv, cfg) {
  */
 export function platformSummary(root) {
   const cfg = loadPlatformConfig(root)
+  if (cfg.error) return { ok: false, code: cfg.errorCode, error: cfg.error, config: cfg }
   const win = isWinLike(cfg)
   const tools = resolveAllTools({ root, config: cfg })
   const found = tools.filter((t) => t.path)
@@ -492,9 +548,10 @@ export function scanFolderForTools(dir, options = {}) {
  * 把整包工具文件夹写入 config：toolkitDir + 匹配到的 tools 路径。
  */
 export function assignToolkitFolder(dir, root) {
+  const prev = loadPlatformConfig(root)
+  if (prev.error) throw new Error(prev.error)
   const scan = scanFolderForTools(dir)
   if (!scan.ok) return Object.assign({ ok: false }, scan)
-  const prev = loadPlatformConfig(root)
   const tools = Object.assign({}, prev.tools || {})
   for (const [id, path] of Object.entries(scan.assigned)) {
     tools[id] = path
@@ -531,6 +588,7 @@ export function assignToolkitFolder(dir, root) {
  */
 export function envAdaptStatus(root) {
   const cfg = loadPlatformConfig(root)
+  if (cfg.error) return { ok: false, ready: false, reason: 'config-unavailable', message: cfg.error }
   const kaliInfo = detectKali()
   const tools = resolveAllTools({ root, config: cfg })
   const foundItems = tools.filter((t) => t.path)
@@ -597,6 +655,7 @@ export default {
   redteamRoot,
   loadPlatformConfig,
   savePlatformConfig,
+  platformSaveResult,
   resolveTool,
   resolveAllTools,
   platformSummary,

@@ -6354,9 +6354,20 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       const latest = React.useRef(null), refreshAfter = React.useRef(false)
       const folderPath = draft?.assignDirectory || ''
       const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-      const validConfig = r => r?.ok === true && record(r.config)
+      const validConfig = r => r?.ok === true && record(r.config) && !r.config.error && r.config.readState !== 'error'
         && (r.config.binDirs == null || Array.isArray(r.config.binDirs))
         && (r.tools == null || (record(r.tools) && Array.isArray(r.tools.items)))
+      const matchesSave = (r, wanted, id) => {
+        const receipt = r.writeReceipt, c = r.config
+        const has = (o, key) => Object.prototype.hasOwnProperty.call(o, key)
+        return receipt?.operationId === id && receipt.op === 'platformConfigSave' && receipt.state === 'committed'
+          && c.platform === wanted.platform && c.notes === wanted.notes
+          && ['toolkitDir', 'nucleiTemplatesDir'].every(key => typeof c[key] === 'string' && c[key].trim() === String(wanted[key] || '').trim())
+          && Array.isArray(c.binDirs) && JSON.stringify(c.binDirs) === JSON.stringify((wanted.binDirs || []).map(x => String(x || '').trim()).filter(Boolean))
+          && record(c.tools) && Object.entries(wanted.tools || {}).every(([key, value]) => has(c.tools, key) && typeof c.tools[key] === 'string' && c.tools[key].trim() === String(value ?? '').trim())
+          && record(c.env) && Object.entries(wanted.env || {}).every(([key, value]) => has(c.env, key) && c.env[key] === value)
+          && c.envAdaptConfigured === !!wanted.envAdaptConfigured && c.envAdaptSkip === !!wanted.envAdaptSkip
+      }
       const makeDraft = r => {
         const c = r.config
         return {
@@ -6414,12 +6425,14 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       const mutate = (op, payload) => {
         if (!mounted.current || writing.current || reading.current || !confirmed.current || !editor.current) return
         const operation = {}, stamp = revision.current
+        const operationId = op === 'platformConfigSave' ? 'env-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) : undefined
         writing.current = operation; generation.current++; reader.current?.abort()
         setBusy(true); setMsg(null)
         const settle = r => {
           if (!mounted.current || writing.current !== operation) return
           writing.current = null; setBusy(false)
-          if (validConfig(r)) {
+          const acknowledged = validConfig(r) && (op !== 'platformConfigSave' || matchesSave(r, payload.config, operationId))
+          if (acknowledged) {
             accept(r, op, stamp)
             setMsg({ ok: op === 'platformConfigSave' ? '已保存配置；请求期间新增的输入会保留。'
               : '已从文件夹分配 ' + (r.assignedCount || 0) + ' 个工具；其他未保存输入会保留。' })
@@ -6427,11 +6440,11 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
             confirmed.current = false
             setMsg({ err: '配置修改结果未确认，已只读核对；未重发写入。' })
           }
-          const recheck = refreshAfter.current || !validConfig(r)
+          const recheck = refreshAfter.current || !acknowledged
           refreshAfter.current = false
           if (recheck) load()
         }
-        api({ op, ...payload }).then(settle, () => settle(null))
+        api({ op, ...payload, ...(operationId ? { operationId } : {}) }).then(settle, () => settle(null))
       }
       const save = () => {
         const d = editor.current
@@ -6584,6 +6597,8 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       const [opened, setOpened] = React.useState(null)
       const [editor, setEditor] = React.useState(null)
       const [message, setMessage] = React.useState(null)
+      const [unconfirmed, setUnconfirmed] = React.useState(() => new Map())
+      const noticeSequence = React.useRef(0)
       const [settled, setSettled] = React.useState(0)
       const generation = React.useRef(0), reader = React.useRef(null)
       const mounted = React.useRef(true), writing = React.useRef(new Map())
@@ -6597,6 +6612,14 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       const form = data && editor?.view === view && editor.token === token ? editor.point : null
       const openId = data && opened?.view === view && opened.token === token ? opened.id : null
       const msg = message?.view === view ? message : null
+      const unresolved = unconfirmed.get(eng)
+      const dismissUnconfirmed = () => {
+        if (!mounted.current || owner.current !== view || !unresolved) return
+        setUnconfirmed(current => {
+          if (current.get(eng)?.id !== unresolved.id) return current
+          const next = new Map(current); next.delete(eng); return next
+        })
+      }
       const err = error?.view === view ? error.text : null
       const setMsg = value => { if (valid()) setMessage(value ? { ...value, view } : null) }
       const setForm = point => { if (ready && valid() && !writing.current.has(eng)) setEditor(point ? { point, view, token } : null) }
@@ -6641,14 +6664,21 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
         const settle = r => {
           if (writing.current.get(eng) !== operation) return
           writing.current.delete(eng)
-          if (!mounted.current || owner.current.eng !== eng) return
+          if (!mounted.current) return
+          if (r?.ok !== true) {
+            const id = ++noticeSequence.current
+            setUnconfirmed(current => {
+              const next = new Map(current); next.set(eng, { id, count: (current.get(eng)?.count || 0) + 1 }); return next
+            })
+          }
+          if (owner.current.eng !== eng) return
           setBusy(false); setEditor(null); setOpened(null)
           const receipt = r?.ok !== true
             ? { err: '得分修改结果未确认，已只读刷新；未重发修改。' }
             : !remove && r.overridden === false
               ? { err: '已保存「启用/停用」。分值未改动：内置得分点由规则锁定；自定义分值请使用「+ 新增得分点」。' }
               : { ok: remove ? '已删除' : r.note || '已保存' }
-          setMessage({ ...receipt, view: owner.current })
+          setMessage(r?.ok === true ? { ...receipt, view: owner.current } : null)
           setSettled(value => value + 1)
         }
         api(request).then(settle, () => settle(null))
@@ -6785,6 +6815,9 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
           h('button', { className: 'rt-btn', disabled: !ready, onClick: startNew }, '+ 新增得分点'),
           h('button', { className: 'rt-btn', disabled: busy, onClick: load }, busy ? '刷新中…' : '刷新')),
         !data ? h('div', { className: 'rt-note', role: 'status' }, busy ? '正在核对当前项目得分记录…' : '当前项目得分记录未确认，请刷新核对。') : null,
+        unresolved ? h('div', { className: 'rt-err', role: 'status' },
+          '有 ' + unresolved.count + ' 笔得分修改结果未确认；只读刷新不会补造成功回执，也未重发修改。请核对记录。关闭仅隐藏提示，不代表修改成功。',
+          h('button', { className: 'rt-btn', onClick: dismissUnconfirmed }, '关闭未确认提示')) : null,
         msg ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
         err ? h('div', { className: 'rt-err' }, err) : null,
         form ? h('div', { className: 'rt-pane', style: { flex: 'none', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
