@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "workbench-v22",
+  "configuration": "workbench-v23",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -459,7 +459,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-workbench-v22-20261028",
+  "recoveryPoint": "ready-workbench-v23-20261028",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -473,7 +473,7 @@
   },
   "programFiles": {
     ".npmignore": "7e04cab6ff4206c15db2a40b0a7fbc1e7ecdad17fa066c1194f02c32df0a026b",
-    "client.js": "1389b86a8ebdd12a4a97f482c8a43b95bc7175b67e3e4e222ca2b421645cd794",
+    "client.js": "49d9fcf35a406cbeb57fad6ff172f638a95972d17b5922fb99b80cd01fc71b79",
     "screenshots.json": "9e6600ec59cce473c540b62cc47c83bc6091346065405cd807ee066a9b92bf44",
     "release-notes.md": "8b699de924c5f6be487ce3e06178cdbc33ae410831d989f0ac2455e8b15694b0",
     "cordis.patch.yml": "88ed15926267a51d75350d495ad42e6e98cc423297175973b574345e78e0536e",
@@ -484,7 +484,7 @@
     ".gitignore": "ed5b2dfcb19b297ad4c71507628b3710e2d4fee5bed050648f732b326cbfa7e3",
     "package.json": "40389171046112e341f299cd7fd1228a1b92f1efa9c0cc46e53c76679f3c329f",
     "README.zh-CN.md": "d4df0d6e57d9da7c0e147cf7bd5929b8f2aa6b4a761f0e97096fd989725d983d",
-    "PERSONAL-CHANGES.md": "b79c1b1853b7e47e8b08706f9676b11796750425c00f65af7d2cb380bea8b20e",
+    "PERSONAL-CHANGES.md": "1002cf827754298314c95800bd21cc0d0a9dc23e7d2308d5202a89cfaedfe072",
     "bin/dsh-purge.js": "759081efd77e2ac757d759eeb2d14552bfbf925944ee3a53247e36064196e1eb",
     "bin/personal-cli.mjs": "ede2f67342870cb881ec46bbb20ef390cf75f359e5fb2b9f4e3264629f51a3fc",
     "docs/banner.svg": "14c10266d5b677eab4da37b70b0da3f6c81be775c1c4604375b79c31574eeb4f",
@@ -549,10 +549,10 @@
     "presets/redteam/agent.cordis.yml": "39ea8b170a5e6daa921ea185fe9eb0dd0342eedf177b051868c77e20e1225a55",
     "presets/redteam/anchor-gate.mjs": "0c99a0dafc072a64179f9e9898aede546dbb6e701c2b453b4164a24f05fe4d16",
     "presets/redteam/preset.yml": "a83460c126cee9dc972df015a98a6869709ca64202d96e2ff42321a2876affaa",
-    "lib/redteam/store-core.js": "c483c91c00ce5e779a275cf7bd3a5b229bbed32c204b364a0ea58782484efefc",
+    "lib/redteam/store-core.js": "52b683dcec8310069e2e6039250257b80be9734b4de363a5f47edc9a800dd735",
     "lib/redteam/personal-binding-client.mjs": "ed79852ca36e508272a56ea4acf53cb3308ab35ac887f76f750341fa661935dd",
-    "lib/redteam/client.js": "5e36dc5bb2c4da910e5b3f2eb73d704776845ca70afd9e01a42c214b63e81e04",
-    "lib/redteam/tools.js": "6b513316903e0dbb686aefac5ed3f0291d2113f9286e342848521c78e4218ec2",
+    "lib/redteam/client.js": "b9eb0e46dd51daa7d709d7212a4bd0b5be212a46e51dd940ec1f1a17db752471",
+    "lib/redteam/tools.js": "6e5b26ca65073762f9341411ccc11011370a8dbb547a455f8a52d54e9fdeafbb",
     "lib/redteam/ui.js": "28e3887b2ea06e7acf5269f0a29d001b008553942e8800b2760a3b353523bdbf",
     "lib/redteam/platform-config.js": "3b4667f588fd2e0ef7e0b6b8855525ba5a3c1621196809bdfa1b0e09d1b2cedc",
     "lib/redteam/ip-utils.js": "53ce639f4e184c531adb395bcb79a22b4591ca476bdbc8e7bc8a716ede5df72d",
@@ -562,7 +562,7 @@
     "lib/redteam/skill-fixes.js": "953a9de698d2517c0c377afd3f01fff4ac387ea948f0687a04cfb5f3100bc68f",
     "lib/redteam/index.js": "3f3aaf18a768c551d16938ad2dc5a666f66fc59ee75a26e414d63e8eb39518ea",
     "lib/redteam/evidence-ledger.mjs": "e72d15a768fa59d9a8591acb72eac21ebe4db29a07acc4b43bf4a619756f4c56",
-    "lib/redteam/report-replay.js": "bc585edab2adb5f12354da84719aff3444f82a8385b5e7a517cd47abe6d0ff73",
+    "lib/redteam/report-replay.js": "f502847a536ea635d2a38eba7a1b6c331b1d5de42db9aba94ec4374af0fc1122",
     "lib/redteam/personal-evidence-redaction.mjs": "693b56a7b9ab67a2033a8855929588eb1f7b08a1e881f4f9c4549395e3c94c69",
     "lib/redteam/personal-session-resolution.mjs": "eee3996e6531646424c8915267e547f5f9235009253f5938264f959ec5d09919",
     "lib/redteam/schema.js": "8780f7237e8623cc423731b7feed41c2c033ced7fe944494e7d2e4fe89cb1e61",

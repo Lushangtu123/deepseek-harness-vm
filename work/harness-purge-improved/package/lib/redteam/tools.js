@@ -1612,19 +1612,20 @@ export function apply(ctx) {
     description: '攻击得分链路复现报告：只收录"拿到了分"的成果（没得分的漏洞不进报告），每一项都尽量附上可直接粘贴进 Yakit Repeater 复现的原始请求。需要交付报告时用这个，而不是 redteam_report。',
     parameters: {
       engagement: { type: 'string' },
-      limit: { type: 'number', description: '最多多少项，默认 500' },
+      limit: { type: 'number', description: '可选：明细每页1至2000项；不填返回完整明细，不影响全量计分或Markdown' },
+      offset: { type: 'number', description: '明细起点，默认0；使用coverage.nextOffset翻页' },
       markdown: { type: 'boolean', description: 'true=返回 markdown 全文（默认 true）；false=只返回条目摘要' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => text(value) },
     async execute(args, exec) {
       const id = resolveEngagement(store, exec, args.engagement)
-      const r = store.scoreReport(id, { limit: args.limit })
+      const r = store.scoreReport(id, { limit: args.limit, offset: args.offset })
       if (args.markdown === false) {
-        return JSON.stringify({ ok: true, engagement: id, summary: r.summary,
+        return JSON.stringify({ ok: true, engagement: id, summary: r.summary, coverage: r.coverage,
           items: r.items.map((x) => ({ seq: x.seq, point: x.point_name, points: x.points, counted: x.counted,
             target: x.target, gained: x.gained, requests: x.requests.length, missing_evidence: x.missing_evidence })) }, null, 2)
       }
-      return JSON.stringify({ ok: true, engagement: id, summary: r.summary, markdown: r.markdown }, null, 2)
+      return JSON.stringify({ ok: true, engagement: id, summary: r.summary, coverage: r.coverage, markdown: r.markdown }, null, 2)
     },
   })))
 

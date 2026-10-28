@@ -5750,52 +5750,86 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
     function ReportTab(props) {
       const eng = props.engagement
       const refreshKey = props.refreshKey || 0
-      const [data, setData] = React.useState(null)
-      const [err, setErr] = React.useState(null)
+      const [snapshot, setData] = React.useState(null)
+      const [error, setErr] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
-      const [msg, setMsg] = React.useState(null)
+      const [feedback, setMsg] = React.useState(null)
+      const [pager, setPager] = React.useState(null)
       /* 报告按阶段折叠：默认全开，折叠状态按靶标记住（阶段多时便于逐段交付） */
       const collapse = useCollapse('report:' + eng)
       const generation = React.useRef(0)
       const requests = React.useRef(null)
-      const currentEng = React.useRef(eng)
-      currentEng.current = eng
+      const mounted = React.useRef(true), owner = React.useRef({ eng, refreshKey })
+      if (owner.current.eng !== eng || owner.current.refreshKey !== refreshKey) owner.current = { eng, refreshKey }
+      const page = owner.current
+      const owns = () => mounted.current && owner.current === page
+      const data = snapshot?.page === page && snapshot.token === generation.current ? snapshot : null
+      const err = error?.page === page ? error.text : null
+      const msg = feedback?.page === page && feedback.token === generation.current ? feedback : null
+      const record = x => !!x && typeof x === 'object' && !Array.isArray(x)
+      const leaves = (x, fields) => fields.every(k => x[k] == null || typeof x[k] === 'string' || (typeof x[k] === 'number' && Number.isFinite(x[k])))
+      const validItem = x => record(x) && Number.isSafeInteger(x.id) && x.id > 0
+        && leaves(x, ['seq','points','nth_of_point','point_name','target','asset_ip','gained','evidence','note','how','recorded_at','recorded_by'])
+        && (x.vuln == null || (record(x.vuln) && leaves(x.vuln, ['cve','title'])))
+        && ['requests','steps','credentials','tunnels','webshells','gaps'].every(k => x[k] == null || (Array.isArray(x[k])
+          && x[k].every(v => k === 'gaps' ? typeof v === 'string' : record(v)
+            && leaves(v, ['request','response','method','url','status','title','detail','agent','stage_code','recorded_at','tool','host','username','secret_type','privilege','source','kind','listen','entry','reach','entry_kind','command','shell_type','pass_key']))))
+      const validReport = r => record(r) && r.ok === true && Array.isArray(r.items) && r.items.every(validItem)
+        && typeof r.markdown === 'string' && record(r.summary)
+        && Number.isSafeInteger(r.summary.count) && r.summary.count >= 0
+        && Number.isFinite(r.summary.points) && r.summary.points >= 0
+        && (r.stages == null || (Array.isArray(r.stages) && r.stages.every(st => record(st)
+          && typeof st.code === 'string' && typeof st.name === 'string' && leaves(st, ['ordinal','points','cumulative','color'])
+          && Array.isArray(st.items) && st.items.every(validItem))))
 
       const load = () => {
-        if (!eng || currentEng.current !== eng) return
+        if (!eng || !owns()) return
         requests.current?.abort()
         const controller = new AbortController()
         requests.current = controller
         const my = ++generation.current
-        const active = () => my === generation.current && currentEng.current === eng
+        const active = () => my === generation.current && owns()
         setBusy(true); setMsg(null); setErr(null); setData(null)
+        const fail = () => { if (active()) { setBusy(false); setData(null); setErr({ page, text: '当前项目报告未确认，请重新生成核对。' }) } }
+        const accept = r => { if (active()) { setBusy(false); setErr(null); setData({ ...r, page, token: my }) } }
         api({ op: 'scoreReport', engagement: eng }, { signal: controller.signal }).then((r) => {
           if (!active()) return
-          if (!r || r.ok === false) { setBusy(false); setErr((r && r.error) || '生成失败'); return }
+          if (!validReport(r)) { fail(); return }
           /* 老 host 只给平铺条目、不给阶段分组（或阶段行缺失）：自己按攻击链分组，
              否则报告页会误报"还没有可交付的成果"。分组数据取自 scoreChain。 */
           if ((!r.stages || r.stages.length === 0) && (r.items || []).length > 0) {
             api({ op: 'scoreChain', engagement: eng }, { signal: controller.signal }).then((c) => {
               if (!active()) return
-              setBusy(false); setErr(null); setData(Object.assign({}, r, { stages: groupByStage(r.items, c) }))
-            }, () => { if (active()) { setBusy(false); setErr(null); setData(r) } })
+              try {
+                const next = { ...r, stages: groupByStage(r.items, c) }
+                if (!validReport(next)) { fail(); return }
+                accept(next)
+              } catch { fail() }
+            }, () => { if (active()) accept({ ...r, stages: groupByStage(r.items, null) }) })
             return
           }
-          setBusy(false); setErr(null); setData(r)
-        }, (e) => { if (active()) { setBusy(false); setErr(String((e && e.message) || e)) } })
+          accept(r)
+        }, (e) => { if (active()) { setBusy(false); setErr({ page, text: '当前项目报告未确认：' + String((e && e.message) || e) }) } })
         return () => {
           if (my === generation.current) generation.current++
           controller.abort()
         }
       }
-      React.useEffect(load, [eng, refreshKey])
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; requests.current?.abort() } }, [])
+      React.useEffect(() => load(), [eng, refreshKey])
+
+      const token = generation.current
+      const actionCurrent = () => owns() && data !== null && data.token === generation.current && token === generation.current
+      const publish = value => { if (actionCurrent()) setMsg({ ...value, page, token }) }
 
       /* 复制结果必须是真实的：clipboard API 失败时（非安全上下文/失焦/被拒）要如实提示，
          否则用户以为复制成功、粘到 Yakit 里是空的。 */
-      const copy = (text, label) => copyWithFeedback(text, label, (okFlag, message) => {
-        setMsg(okFlag ? { ok: message } : { err: message })
-      })
+      const copy = (text, label) => {
+        if (!actionCurrent()) return
+        return copyWithFeedback(text, label, (okFlag, message) => publish(okFlag ? { ok: message } : { err: message }))
+      }
       const download = (text, label) => {
+        if (!actionCurrent()) return
         try {
           const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
           const url = URL.createObjectURL(blob)
@@ -5804,14 +5838,20 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
           a.download = 'report-' + String(label || 'score').replace(/[^\w.\-]/g, '_') + '.md'
           a.click()
           URL.revokeObjectURL(url)
-          setMsg({ ok: '已下载：' + label })
-        } catch (e) { setMsg({ err: '下载失败：' + ((e && e.message) || e) }) }
+          publish({ ok: '已发起下载：' + label })
+        } catch (e) { publish({ err: '下载失败：' + ((e && e.message) || e) }) }
       }
 
       const items = (data && data.items) || []
       const stages = (data && data.stages) || []
       const summary = (data && data.summary) || null
       const mdText = (data && data.markdown) || ''
+      const detailItems = stages.flatMap(st => st.items)
+      const pageIndex = pager?.snapshot === data ? pager.index : 0
+      const pageCount = Math.max(1, Math.ceil(detailItems.length / 25))
+      const visibleIds = new Set(detailItems.slice(pageIndex * 25, (pageIndex + 1) * 25).map(x => x.id))
+      const visibleStages = stages.map(st => ({ ...st, items: st.items.filter(x => visibleIds.has(x.id)) })).filter(st => st.items.length)
+      const movePage = index => { if (actionCurrent() && Number.isInteger(index) && index >= 0 && index < pageCount) setPager({ snapshot: data, index }) }
       const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳']
 
       /* 每项一条，平铺不折叠：目标 → 拿到什么 → 复现请求（可直接粘进 Yakit）→ 响应 */
@@ -5946,13 +5986,17 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
           h('button', { className: 'rt-btn', disabled: busy, onClick: load }, busy ? '生成中…' : '重新生成')),
         msg ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
         err ? h('div', { className: 'rt-err' }, err) : null,
+        data && detailItems.length ? h('div', { className: 'rt-toolbar' },
+          h('span', null, '明细 ' + (pageIndex * 25 + 1) + '–' + Math.min((pageIndex + 1) * 25, detailItems.length) + ' / ' + detailItems.length + ' 条；总分与导出包含全部成果。'),
+          h('button', { className: 'rt-btn', disabled: pageIndex === 0, onClick: () => movePage(pageIndex - 1) }, '上一页'),
+          h('button', { className: 'rt-btn', disabled: pageIndex + 1 >= pageCount, onClick: () => movePage(pageIndex + 1) }, '下一页')) : null,
         h('div', { className: 'rt-body', style: { overflow: 'auto' } },
           stages.length
             ? h('div', { className: 'rt-rep-list' },
                 h('div', { className: 'rt-rep-tools' },
                   h('button', { className: 'rt-btn', onClick: () => collapse.setAll(stages.map((s) => 'st:' + s.code), true) }, '全部展开'),
                   h('button', { className: 'rt-btn', onClick: () => collapse.setAll(stages.map((s) => 'st:' + s.code), false) }, '全部折叠')),
-                stages.map((st) => {
+                visibleStages.map((st) => {
                   const open = collapse.isOpen('st:' + st.code, true)
                   const toggle = collapse.toggle('st:' + st.code, true)
                   return h('div', { key: 'g' + st.code, className: 'rt-rep-group' },

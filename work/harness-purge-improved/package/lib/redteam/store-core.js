@@ -2695,7 +2695,10 @@ export class RedteamStore {
   scoreReport(id, options = {}) {
     const db = this.db(id)
     const meta = readMeta(this.metaPathOf(id)) || {}
-    const limit = Math.min(Number(options.limit) || 500, 2000)
+    const limit = options.limit == null ? null : Number(options.limit)
+    const offset = options.offset == null ? 0 : Number(options.offset)
+    if ((limit !== null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000))
+      || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid report detail pagination')
     const rows = db.prepare(`SELECT h.*, p.code, p.name AS point_name, p.points AS point_default, p.category,
         p.enabled AS point_enabled, p.rule AS point_rule, p.tier AS point_tier, p.cap AS point_cap,
         p.dedup_scope AS point_dedup, p.src AS point_src, p.description AS point_desc,
@@ -2704,7 +2707,7 @@ export class RedteamStore {
       LEFT JOIN score_point p ON p.id = h.point_id
       LEFT JOIN asset a ON a.id = h.asset_id
       LEFT JOIN vuln v ON v.id = h.vuln_id
-      ORDER BY h.recorded_at, h.id LIMIT ?`).all(limit)
+      ORDER BY h.recorded_at, h.id`).all()
 
     /* 计分口径：同类得分不设上限，命中即累加（自建账号已在上面整条剔除） */
     const perPoint = new Map()
@@ -2775,7 +2778,7 @@ export class RedteamStore {
       /* 原始请求：先按显式关联的漏洞取 */
       let requests = h.vuln_id === null || h.vuln_id === undefined ? [] : eviByVuln.all(h.vuln_id).map((e) => ({
         label: e.label || (e.method || '') + ' ' + (e.url || ''), method: e.method, url: e.url, status: e.status,
-        request: clip(e.request, 20000), response: clip(e.response, 8000), note: e.note, source: 'linked',
+        request: e.request == null ? '' : String(e.request), response: clip(e.response, 8000), note: e.note, source: 'linked',
       }))
       /* 兜底：同资产 + 目标路径逐级降级匹配（先精确到两级路径，再退到一级、再到整个授权） */
       if (requests.length === 0 && h.target) {
@@ -2810,7 +2813,7 @@ export class RedteamStore {
         }
         requests = rows2.map((e) => ({
           label: e.label || (e.method || '') + ' ' + (e.url || ''), method: e.method, url: e.url, status: e.status,
-          request: clip(e.request, 20000), response: clip(e.response, 8000), note: e.note, source: 'auto',
+          request: e.request == null ? '' : String(e.request), response: clip(e.response, 8000), note: e.note, source: 'auto',
         }))
       }
       /* ── 复现入口：请求 / 命令 / 判定标准 ──────────────────────────────────
@@ -2852,20 +2855,33 @@ export class RedteamStore {
          记着"上传冰蝎马"的 curl；若先判"步骤里有 curl 就用它"，报告就会把上传命令
          当成边界突破的复现命令 —— 张冠李戴，用户照着跑根本复现不出"跨进内网"。
          所以"资产是否指向该得分点的复现方式"必须排在"步骤里有没有命令"之前。 */
-      const capturedRequest = requests.length > 0 ? String(requests[0].request || '').trim() : ''
+      const capturedRequest = requests.length > 0 ? String(requests[0].request || '') : ''
       const capturedCurl = (() => {
         if (capturedRequest === '') return null
+        const headerText = capturedRequest.split(/\r?\n\r?\n/, 1)[0]
+        if (/^transfer-encoding:/im.test(headerText) || /\0/.test(capturedRequest)) return null
         const firstLine = capturedRequest.split(/\r?\n/)[0]
         const m = /^([A-Z]+)\s+(\S+)/.exec(firstLine)
         const hostLine = /^host:\s*(\S+)/im.exec(capturedRequest)
         if (m === null || hostLine === null) return null
-        const scheme = /:443$/.test(hostLine[1]) ? 'https' : 'http'
+        // A request line cannot establish TLS. Use the recorded URL only when
+        // its authority agrees with the captured Host; otherwise retain raw
+        // evidence without inventing an equivalent command.
+        let known
+        try {
+          known = new URL(requests[0].url)
+          if (!['http:', 'https:'].includes(known.protocol) || known.username || known.password
+            || new URL(known.protocol + '//' + hostLine[1]).host.toLowerCase() !== known.host.toLowerCase()) return null
+        } catch { return null }
+        const scheme = known.protocol.slice(0, -1)
         /* path 单独带出来：parseTarget 会在 '?' 处截断，只给 url 会丢掉查询串
            （实测把 `GET /_cat/indices?v` 合成成 `curl .../_cat/indices`）。
            鉴权与内容类型头同样要带（Basic 少了就是 401，POST 少了就是 415）。 */
         const keep = []
         for (const line of capturedRequest.split(/\r?\n/).slice(1)) {
-          if (/^(authorization|content-type|accept|x-requested-with|referer):/i.test(line.trim())) keep.push(line.trim())
+          if (!line) break
+          if (/^[!#$%&'*+.^_`|~\w-]+:/.test(line)
+            && !/^(host|connection|content-length|transfer-encoding):/i.test(line)) keep.push(line)
         }
         return { url: scheme + '://' + hostLine[1] + m[2], method: m[1], path: m[2], headers: keep }
       })()
@@ -2901,12 +2917,11 @@ export class RedteamStore {
            请求体**只从这份报文里取**，不能借用攻击步骤里那条 curl 的 data ——
            实测会把 `GET /_cat/indices?v` 合成成 `curl -d @/tmp/.b.json .../_cat/indices`。 */
         const sep = capturedRequest.search(/\r?\n\r?\n/)
-        const body = sep === -1 ? '' : capturedRequest.slice(sep).replace(/^\r?\n\r?\n/, '').trim()
+        const body = sep === -1 ? null : capturedRequest.slice(sep).replace(/^\r?\n\r?\n/, '')
         replayCmd = buildCurlCommand({
           url: capturedCurl.url, path: capturedCurl.path, method: capturedCurl.method,
           headers: capturedCurl.headers,
-          data: body === '' ? null : body,
-          cookie: parsedCurl === null ? null : parsedCurl.cookie,
+          data: body,
         })
         replayCmdKind = 'synthesized'
       } else if (linkedTool !== '' && looksLikeCommand(linkedTool)) {
@@ -3022,6 +3037,8 @@ export class RedteamStore {
         /* 证据截图：本条（或本组）对应的代表图，最多 3 张 —— 见 #representativeShots */
         shots: [],
         replay_http: replayHttp,
+        replay_conversion_note: capturedRequest !== '' && capturedCurl === null
+          ? 'Equivalent curl not generated: confirm the recorded URL, Host and request framing; use the preserved raw request.' : null,
         replay_http_synthesized: replayHttpSynthesized,
         /* 这份报文是当日真实抓包，还是按当日命令/回显重建的（证据行的 note 里写明了就按它标） */
         replay_http_rebuilt: requests.length > 0 && /重建|按当日.*(命令|回显)|未留存原始抓包/.test(String(requests[0].note || '')),
@@ -3360,7 +3377,11 @@ export class RedteamStore {
       : unesc(x.target))
     const unesc = (t) => String(t === null || t === undefined ? '' : t)
       .replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-    const block = (lang, text) => { md.push('```' + lang, String(text).replace(/\r/g, '').trim(), '```', '') }
+    const block = (lang, text) => {
+      const value = String(text)
+      const fence = '`'.repeat((value.match(/`+/g) || []).reduce((n, run) => Math.max(n, run.length + 1), 3))
+      md.push(fence + lang, value, fence, '')
+    }
     /* 截断落在句子/分句边界上：直接 slice 会切出"…后端是 3 台 LB 轮询("这种半截句子 */
     const clipText = (t, n) => {
       const s0 = oneLine(t, n)
@@ -3577,6 +3598,7 @@ export class RedteamStore {
 
       /* 复现入口：① HTTP 报文（可直放） ② 命令行 ③ 复现方式说明 */
       md.push("#### Replay", '')
+      if (x.replay_conversion_note) md.push('> ' + x.replay_conversion_note, '')
       if (x.repro_kind === 'http') {
         const lead = (x.repro_http_captured && x.replay_http_rebuilt !== true)
           ? "**Raw request** (captured live that day; copy the whole block → Burp Repeater / Yakit \"paste raw request\" → send)"
@@ -3770,7 +3792,15 @@ export class RedteamStore {
       }
       md.push('')
     }
-    return this.redactResult(id, { items: items2, stages, summary, markdown: md.join('\n'), target: targetName })
+    // Score and Markdown always cover the full data set. An explicit limit
+    // pages grouped detail cards only; it never changes caps or totals.
+    const detailItems = ordered.slice(offset, limit === null ? undefined : offset + limit)
+    const selected = new Set(detailItems.map(x => x.id))
+    const detailStages = stages.map(st => ({ ...st, items: st.items.filter(x => selected.has(x.id)) })).filter(st => st.items.length)
+    const coverage = { totalHits: rows.length, countedHits: summary.count, totalItems: ordered.length,
+      returnedItems: detailItems.length, offset, nextOffset: offset + detailItems.length < ordered.length ? offset + detailItems.length : null,
+      complete: offset === 0 && detailItems.length === ordered.length, markdownComplete: true }
+    return this.redactResult(id, { items: detailItems, stages: detailStages, summary, coverage, markdown: md.join('\n'), target: targetName })
   }
 
   /**

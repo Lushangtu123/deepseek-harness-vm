@@ -238,8 +238,10 @@ test('Session and report views do not display a legacy raw connection password',
   h.mount('SessionTab', { engagement: 'A' }); await flush()
   assert.doesNotMatch(text(h.render()), /synthetic-legacy-connection-secret/)
   h.unmount()
-  const r = host(async () => response({ ok: true, items: [], stages: [{ code: 's', name: 'Stage', points: 1, cumulative: 1, color: '#111111', items: [{ id: 2, seq: 1, webshells: [shell], steps: [] }] }] }))
+  const reportItem = { id: 2, seq: 1, points: 1, webshells: [shell], steps: [] }
+  const r = host(async () => response({ ok: true, markdown: 'owned-report', summary: { count: 1, points: 1 }, items: [reportItem], stages: [{ code: 's', name: 'Stage', points: 1, cumulative: 1, color: '#111111', items: [reportItem] }] }))
   r.mount('ReportTab', { engagement: 'A' }); await flush()
+  assert.match(text(r.render()), /Stage/)
   assert.doesNotMatch(text(r.render()), /synthetic-legacy-connection-secret/)
   r.unmount()
 })

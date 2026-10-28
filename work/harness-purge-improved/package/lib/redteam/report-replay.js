@@ -27,11 +27,11 @@
 function parseTarget(target) {
   const t = String(target || '').trim()
   if (t === '') return null
-  const url = /^([a-z][a-z0-9+.-]*):\/\/([^/?#\s]+)([^?#\s]*)?/i.exec(t)
+  const url = /^([a-z][a-z0-9+.-]*):\/\/([^/?#\s]+)([^#\s]*)?/i.exec(t)
   if (url !== null) {
     const scheme = url[1].toLowerCase()
     const authority = url[2]
-    const path = url[3] && url[3] !== '' ? url[3] : '/'
+    const path = url[3] ? (url[3].startsWith('?') ? '/' + url[3] : url[3]) : '/'
     /* 方括号 IPv6：[2001:db8::1]:8080 → host 2001:db8::1, port 8080 */
     const bracket = /^\[([^\]]+)\](?::(\d{1,5}))?$/.exec(authority)
     if (bracket !== null) {
@@ -123,6 +123,7 @@ function buildHttpRequest(options = {}) {
   const lines = [method + ' ' + path + ' HTTP/1.1', 'Host: ' + hostHeader]
   const headers = Array.isArray(options.headers) ? options.headers.slice() : []
   const hasHeader = (name) => headers.some((h) => String(h).toLowerCase().startsWith(name.toLowerCase() + ':'))
+  if (!hasHeader('Host')) headers.unshift('Host: ' + hostHeader)
   if (!hasHeader('User-Agent')) headers.push('User-Agent: Mozilla/5.0')
   if (!hasHeader('Accept')) headers.push('Accept: */*')
   if (options.cookie && !hasHeader('Cookie')) headers.push('Cookie: ' + options.cookie)
@@ -151,11 +152,21 @@ function buildCurlCommand(options = {}) {
     ? hostText + ':' + target.port
     : hostText
   const url = scheme + '://' + hostPart + (options.path || target.path || '/')
-  const parts = ['curl -i -s' + (options.insecure ? ' -k' : '') + (options.followRedirect ? ' -L' : '')]
-  if (options.method && String(options.method).toUpperCase() !== 'GET') parts.push('-X ' + String(options.method).toUpperCase())
-  if (options.cookie) parts.push("-b '" + options.cookie + "'")
-  if (options.data !== undefined && options.data !== null && options.data !== '') parts.push("-d '" + String(options.data).replace(/'/g, "'\\''") + "'")
-  parts.push("'" + url + "'")
+  const parts = ['curl -i -s --globoff --path-as-is' + (options.insecure ? ' -k' : '') + (options.followRedirect ? ' -L' : '')]
+  const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'"
+  const hasBody = options.data !== undefined && options.data !== null
+  if (options.method && (String(options.method).toUpperCase() !== 'GET' || hasBody)) {
+    const method = String(options.method).toUpperCase()
+    if (!/^[A-Z]+$/.test(method)) return null
+    parts.push('-X ' + method)
+  }
+  for (const header of (Array.isArray(options.headers) ? options.headers : [])) {
+    if (/[\r\n\0]/.test(String(header))) return null
+    parts.push('-H ' + quote(header))
+  }
+  if (options.cookie) parts.push('-b ' + quote(options.cookie))
+  if (hasBody) parts.push('--data-raw ' + quote(options.data))
+  parts.push(quote(url))
   return parts.join(' ')
 }
 
