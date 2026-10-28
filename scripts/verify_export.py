@@ -1,53 +1,75 @@
 #!/usr/bin/env python3
-"""Read-only integrity and bounded credential-pattern check; no YAML execution."""
-from pathlib import Path
+"""Read-only export checks; failures remain failures with Python optimization."""
+from pathlib import Path,PurePosixPath
 import ast,hashlib,json,re
 
-root=Path(__file__).resolve().parent.parent
-manifest_path=root/'inventory/files.sha256.json'
-expected=json.loads(manifest_path.read_text())
-actual={}
-issues=[]
-text_count=0
-binary_count=0
-patterns={
+PATTERNS={
  'provider-key':re.compile(rb'\bsk-[A-Za-z0-9_-]{20,}\b'),
  'github-token':re.compile(rb'\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
  'private-key':re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'),
 }
-assert patterns['provider-key'].search(b'sk-'+b'A'*24)
-assert patterns['github-token'].search(b'ghp_'+b'A'*30)
-assert patterns['private-key'].search(b'-----BEGIN '+'OPENSSH PRIVATE KEY-----'.encode())
-for p in sorted(root.rglob('*')):
- relative=p.relative_to(root)
- if any(part in {'.git','__pycache__'} for part in relative.parts):continue
- if p.is_symlink():issues.append({'file':str(relative),'kind':'symlink'});continue
- if not p.is_file() or p==manifest_path:continue
- raw=p.read_bytes()
- actual[str(relative)]=hashlib.sha256(raw).hexdigest()
- if p.name.startswith('.credentials.') or p.suffix in {'.db','.sqlite','.jsonl','.log','.qcow2','.img','.iso','.tar','.tgz','.zip'} or any(part in {'sessions','storages','node_modules','.ssh'} for part in relative.parts):
-  issues.append({'file':str(relative),'kind':'excluded-artifact'})
- for label,pattern in patterns.items():
-  if pattern.search(raw):issues.append({'file':str(relative),'kind':label})
- try:
-  text=raw.decode('utf-8');text_count+=1
- except UnicodeDecodeError:
-  binary_count+=1
-  if p.suffix not in {'.png','.jpg'}:issues.append({'file':str(relative),'kind':'unexpected-binary'})
-  continue
- if p.suffix=='.py':ast.parse(text,filename=str(relative))
- if p.suffix=='.json':json.loads(text)
- assert not ('-----BEGIN ' in text and 'PRIVATE KEY-----' in text and 'patterns[' not in text),'Unexpected private key material'
-if actual!=expected:
+
+def safe_name(name):
+ return isinstance(name,str) and bool(name) and not PurePosixPath(name).is_absolute() and not any(x in {'','..','.'} for x in name.split('/')) and '\\' not in name
+
+def load_inventory(path):
+ value=json.loads(path.read_text())
+ if not isinstance(value,dict):raise ValueError('Invalid inventory')
+ return value
+
+def verify(root):
+ manifest=root/'inventory/files.sha256.json'
+ expected=load_inventory(manifest)
+ if any(not safe_name(k) or not isinstance(v,str) or not re.fullmatch('[a-f0-9]{64}',v) for k,v in expected.items()):raise ValueError('Invalid inventory')
+ actual={};issues=[];text_count=binary_count=0
+ def issue(category,code,name):issues.append({'category':category,'kind':code,'file':name})
+ for p in sorted(root.rglob('*')):
+  relative=p.relative_to(root);name=str(relative)
+  if any(part in {'.git','__pycache__'} for part in relative.parts):continue
+  if p.is_symlink():issue('unsupported','symlink',name);continue
+  if not p.is_file() or p==manifest:continue
+  raw=p.read_bytes();actual[name]=hashlib.sha256(raw).hexdigest()
+  if p.name.startswith(('.credentials.','guest-ed25519')) or p.name in {'.env','secrets.env','pentagi-admin.json','pentagi-connection.json','known_hosts'} or p.suffix in {'.db','.sqlite','.jsonl','.log','.qcow2','.img','.iso','.tar','.tgz','.zip'} or any(x in {'sessions','storages','node_modules','.ssh'} for x in relative.parts):issue('credential','excluded-artifact',name)
+  for label,pattern in PATTERNS.items():
+   if pattern.search(raw):issue('credential',label,name)
+  try:text=raw.decode('utf-8');text_count+=1
+  except UnicodeDecodeError:
+   binary_count+=1
+   if p.suffix not in {'.png','.jpg'}:issue('unsupported','unexpected-binary',name)
+   continue
+  try:
+   if p.suffix=='.py':ast.parse(text,filename=name)
+   if p.suffix=='.json':json.loads(text)
+  except (ValueError,SyntaxError):issue('unsupported','parse-error',name)
  for name in sorted(set(actual)|set(expected)):
-  if actual.get(name)!=expected.get(name):issues.append({'file':name,'kind':'manifest-mismatch'})
-source=json.loads((root/'work/harness-purge-improved/package-files.json').read_text())
-program=root/'work/harness-purge-improved/package'
-assert len(source)==114
-for name,want in source.items():
- assert hashlib.sha256((program/name).read_bytes()).hexdigest()==want,name
-ledger=json.loads((root/'inventory/export.json').read_text())
-for name,row in ledger['guestFiles'].items():
- assert hashlib.sha256((root/name).read_bytes()).hexdigest()==row['sha256'],name
-assert not issues,json.dumps(issues,ensure_ascii=False)
-print(json.dumps({'filesMatched':len(expected),'programFilesMatched':len(source),'guestFilesMatched':len(ledger['guestFiles']),'textFilesChecked':text_count,'upstreamImageFiles':binary_count,'credentialPatternFindings':len(issues),'scope':'integrity, Python/JSON parse and fixed credential patterns; not a complete security audit'},ensure_ascii=False))
+  if actual.get(name)!=expected.get(name):issue('integrity','manifest-mismatch',name)
+ source=load_inventory(root/'work/harness-purge-improved/package-files.json')
+ ledger=load_inventory(root/'inventory/export.json')
+ guest=ledger.get('guestFiles')
+ if not isinstance(guest,dict) or not source:raise ValueError('Invalid source inventory')
+ if any(not isinstance(v,str) or not re.fullmatch('[a-f0-9]{64}',v) for v in source.values()):raise ValueError('Invalid program digest')
+ if any(not isinstance(v,dict) or not isinstance(v.get('sha256'),str) or not re.fullmatch('[a-f0-9]{64}',v['sha256']) for v in guest.values()):raise ValueError('Invalid guest digest')
+ program_count=guest_count=0
+ def digest(relative):
+  if not safe_name(relative):raise ValueError('Invalid source path')
+  p=root/relative
+  if p.resolve()!=p or not p.is_file():return None
+  return hashlib.sha256(p.read_bytes()).hexdigest()
+ for name,want in source.items():
+  if not safe_name(name):raise ValueError('Invalid source path')
+  relative='work/harness-purge-improved/package/'+name
+  if digest(relative)==want:program_count+=1
+  else:issue('integrity','program-mismatch',relative)
+ for name,row in guest.items():
+  if not isinstance(row,dict):raise ValueError('Invalid guest inventory')
+  if digest(name)==row.get('sha256'):guest_count+=1
+  else:issue('integrity','guest-mismatch',name)
+ return {'ok':not issues,'filesMatched':sum(actual.get(k)==v for k,v in expected.items()),'expectedFiles':len(expected),'programFilesMatched':program_count,'programExpected':len(source),'guestFilesMatched':guest_count,'guestExpected':len(guest),'textFilesChecked':text_count,'upstreamImageFiles':binary_count,'credentialPatternFindings':sum(x['category']=='credential' for x in issues),'integrityFindings':sum(x['category']=='integrity' for x in issues),'unsupportedFindings':sum(x['category']=='unsupported' for x in issues),'issues':issues,'scope':'integrity, Python/JSON parse and fixed credential patterns; not a complete security audit'}
+
+def main():
+ try:result=verify(Path(__file__).resolve().parent.parent)
+ except (OSError,ValueError,TypeError,KeyError):result={'ok':False,'issues':[{'category':'integrity','kind':'inventory-unavailable-or-invalid','file':'inventory'}]}
+ print(json.dumps(result,ensure_ascii=False))
+ return 0 if result['ok'] else 1
+
+if __name__=='__main__':raise SystemExit(main())

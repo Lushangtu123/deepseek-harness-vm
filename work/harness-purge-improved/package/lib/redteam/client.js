@@ -3497,51 +3497,64 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false)
       const [msg, setMsg] = React.useState(null)
       const [copied, setCopied] = React.useState(null)
-
+      const [loading, setLoading] = React.useState(true)
+      const generation = React.useRef(0), reader = React.useRef(null)
+      const mounted = React.useRef(true), writing = React.useRef(false)
+      const owner = React.useRef({ eng, refreshKey })
+      if (owner.current.eng !== eng || owner.current.refreshKey !== refreshKey) owner.current = { eng, refreshKey }
+      const view = owner.current
+      const current = data?.view === view && data.token === generation.current ? data : null
+      const token = current?.token
+      const valid = () => mounted.current && owner.current === view && token === generation.current
+      const ready = !!current && !loading && !busy
       const load = () => {
-        if (!eng) return
-        api({ op: 'sessions', engagement: eng }).then((r) => {
-          if (!r || r.ok === false) { setErr((r && r.error) || '读取失败'); return }
-          setErr(null)
-          setData(r)
-        }, (e) => setErr(String((e && e.message) || e)))
+        if (!eng || owner.current !== view || !mounted.current || writing.current) return
+        const next = ++generation.current, controller = new AbortController()
+        reader.current?.abort(); reader.current = controller
+        setData(null); setErr(null); setLoading(true); setCopied(null)
+        const ownsRead = () => mounted.current && owner.current === view && generation.current === next
+        api({ op: 'sessions', engagement: eng }, { signal: controller.signal }).then(r => {
+          if (!ownsRead()) return
+          if (!r?.ok) { setErr({ view, text: '当前项目记录读取失败，请刷新核对。' }); return }
+          setData({ ...r, view, token: next })
+        }, () => { if (ownsRead()) setErr({ view, text: '当前项目记录读取未确认，请刷新核对。' }) })
+          .finally(() => { if (ownsRead()) setLoading(false) })
       }
-      React.useEffect(load, [eng, refreshKey])
-
-      const probe = () => {
-        setBusy(true); setMsg(null)
-        api({ op: 'probeSessions', engagement: eng, timeoutMs: 6000 }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setMsg({ err: (r && r.error) || '检测失败' }); load(); return }
-          const on = (r.webshells || []).filter((x) => x.status === 'online').length
-          const act = (r.tunnels || []).filter((x) => x.status === 'active').length
-          setMsg({ ok: '检测完成：WebShell 在线 ' + on + '/' + (r.webshells || []).length + '，隧道可用 ' + act + '/' + (r.tunnels || []).length })
-          load()
-        }, (e) => { setBusy(false); setMsg({ err: String((e && e.message) || e) }) })
-      }
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; reader.current?.abort() } }, [])
+      React.useEffect(() => {
+        writing.current = false; setBusy(false); setMsg(null); load()
+        return () => { generation.current++; reader.current?.abort() }
+      }, [eng, refreshKey])
 
       /* 只有真的写进剪贴板才把按钮点亮成「已复制」；失败时如实报错 */
-      const copy = (key, text) => copyWithFeedback(text, text, (okFlag, message) => {
-        if (!okFlag) { setMsg({ err: message }); return }
-        setCopied(key)
-        setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500)
-      })
-
-      const markTunnel = (t, status) => {
-        setMsg(null)
-        api({ op: 'updateTunnel', engagement: eng, id: t.id, patch: { status: status, check_note: '界面手动标记' } })
-          .then(() => load(), (e) => setMsg({ err: String((e && e.message) || e) }))
+      const copy = (key, value) => {
+        if (!ready || !valid() || writing.current) return
+        copyWithFeedback(value, value, (okFlag, message) => {
+          if (!valid()) return
+          if (!okFlag) { setMsg({ err: message, view }); return }
+          setCopied(key)
+          setTimeout(() => { if (valid()) setCopied(c => c === key ? null : c) }, 1500)
+        })
       }
-      const markShell = (w, status) => {
-        setMsg(null)
-        api({ op: 'updateWebshell', engagement: eng, id: w.id, patch: { status: status, check_note: '界面手动标记' } })
-          .then(() => load(), (e) => setMsg({ err: String((e && e.message) || e) }))
+      const mark = (op, row, status) => {
+        if (!ready || !valid() || writing.current) return
+        writing.current = true; setBusy(true); setMsg(null)
+        const settle = failed => {
+          if (!valid()) return
+          writing.current = false; setBusy(false)
+          setMsg({ err: failed ? '标记结果未确认，已只读刷新；未重发修改。' : null, view })
+          load()
+        }
+        api({ op, engagement: eng, id: row.id, patch: { status, check_note: '界面手动标记' } })
+          .then(r => settle(r?.ok !== true), () => settle(true))
       }
+      const markTunnel = (row, status) => mark('updateTunnel', row, status)
+      const markShell = (row, status) => mark('updateWebshell', row, status)
 
       const sessCollapse = useCollapse('sessions:' + eng)
-      const totals = (data && data.totals) || {}
-      const shells = (data && data.webshells) || []
-      const tunnels = (data && data.tunnels) || []
+      const totals = current?.totals || {}
+      const shells = current?.webshells || []
+      const tunnels = current?.tunnels || []
       const statusDot = (s) => h('span', { className: s === 'online' || s === 'active' ? 'rt-dot-on' : (s === 'unknown' || !s ? 'rt-dot-unk' : 'rt-dot-off') })
       /* 卡片里统一用「标签 + 值」两列，长文本自动换行 —— 比一行点分隔好扫读 */
       const fact = (label, value) => h('div', { className: 'rt-sess-fact' }, h('b', null, label), h('span', null, value))
@@ -3572,7 +3585,7 @@ window.__ModuleLoader__.load({
         hints.push(hint('h2', '还没有可用的 suo5 隧道（打进内网的标准通道）',
           '用技能 suo5-tunnel 通过上面的 WebShell 建 socks5 隧道，再 redteam_tunnel_add'
           + '（kind=suo5、listen=127.0.0.1:1080、entry=WebShell URL、reach=可达网段）登记，'
-          + '最后点「检测连通性」确认 status=active。'))
+          + '需要核实状态时，请在会话中说明目标和范围，使用已授权工具检测后再更新记录。'))
       }
 
       const shellCards = shells.map((w) => h('div', { key: 'w' + w.id, className: 'rt-sess' },
@@ -3586,11 +3599,11 @@ window.__ModuleLoader__.load({
           copied === 'cmd' + w.id
             ? h('span', { className: 'rt-tag', style: { color: '#10b981' } }, '已复制')
             : h('button', {
-                className: 'rt-btn', style: { padding: '0 6px', fontSize: 11 },
+                className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 },
                 onClick: () => copy('cmd' + w.id, 'curl -s "' + w.url + '"'),
               }, '复制 URL'),
           h('button', {
-            className: 'rt-btn', style: { padding: '0 6px', fontSize: 11 },
+            className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 },
             onClick: () => markShell(w, 'offline'),
           }, '标记失效')),
         h('div', { className: 'rt-sess-facts' },
@@ -3623,12 +3636,12 @@ window.__ModuleLoader__.load({
             t.reach ? h('span', { className: 'rt-tag' }, '可达 ' + t.reach) : null,
             h('div', { className: 'rt-spacer' }),
             h('button', {
-              className: 'rt-btn', style: { padding: '0 6px', fontSize: 11 },
+              className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 },
               onClick: () => copy('sock' + t.id, t.listen || ''),
             }, copied === 'sock' + t.id ? '已复制' : '复制地址'),
             t.status === 'active'
-              ? h('button', { className: 'rt-btn', style: { padding: '0 6px', fontSize: 11 }, onClick: () => markTunnel(t, 'down') }, '标记失效')
-              : h('button', { className: 'rt-btn', style: { padding: '0 6px', fontSize: 11 }, onClick: () => markTunnel(t, 'active') }, '标记可用')),
+              ? h('button', { className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 }, onClick: () => markTunnel(t, 'down') }, '标记失效')
+              : h('button', { className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 }, onClick: () => markTunnel(t, 'active') }, '标记可用')),
           h('div', { className: 'rt-sess-facts' },
             fact('目标侧入口', t.entry || '未登记'),
             fact('跨越边界', t.legit === true
@@ -3661,17 +3674,19 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'rt-main' },
         h('div', { className: 'rt-toolbar' },
           h('span', { style: { fontWeight: 600 } }, '会话与入口'),
-          h('span', { className: 'rt-tag' }, 'WebShell ' + (totals.webshellsOnline || 0) + '/' + (totals.webshells || 0) + ' 在线'),
-          h('span', { className: 'rt-tag' }, '隧道 ' + (totals.tunnelsActive || 0) + '/' + (totals.tunnels || 0) + ' 可用'),
-          h('span', { className: 'rt-tag' }, '凭据 ' + (totals.credentials || 0)),
-          h('span', { className: 'rt-tag' }, '访问会话 ' + (totals.access || 0)),
+          h('span', { className: 'rt-tag' }, 'WebShell ' + (current ? (totals.webshellsOnline || 0) + '/' + (totals.webshells || 0) : '待核对') + ' 在线'),
+          h('span', { className: 'rt-tag' }, '隧道 ' + (current ? (totals.tunnelsActive || 0) + '/' + (totals.tunnels || 0) : '待核对') + ' 可用'),
+          h('span', { className: 'rt-tag' }, '凭据 ' + (current ? totals.credentials || 0 : '?')),
+          h('span', { className: 'rt-tag' }, '访问会话 ' + (current ? totals.access || 0 : '?')),
           h('div', { className: 'rt-spacer' }),
-          h('button', { className: 'rt-btn rt-btn-primary', disabled: busy, onClick: probe }, busy ? '检测中…' : '检测连通性'),
-          h('button', { className: 'rt-btn', onClick: load }, '刷新')),
-        msg ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
-        err ? h('div', { className: 'rt-err' }, err) : null,
+          h('button', { className: 'rt-btn rt-btn-primary', disabled: true, title: '当前面板不发起主动检测；请在会话中说明目标和范围后使用已授权工具。' }, '检测连通性'),
+          h('button', { className: 'rt-btn', disabled: busy, onClick: load }, '刷新')),
+        h('div', { className: 'rt-note' }, '当前面板不发起主动检测；请在会话中说明目标和范围后使用已授权工具。'),
+        !current ? h('div', { className: 'rt-note', role: 'status' }, loading ? '正在核对当前项目记录…' : '当前项目记录未确认，请刷新核对。') : null,
+        msg?.view === view && (msg.err || msg.ok) ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
+        err?.view === view ? h('div', { className: 'rt-err' }, err.text) : null,
         h('div', { className: 'rt-body', style: { overflow: 'auto' } },
-          !shells.length && !tunnels.length
+          current && !shells.length && !tunnels.length
             ? h('div', { className: 'rt-empty' },
                 h('div', null, '还没有登记任何 WebShell 或隧道。'),
                 h('div', { style: { marginTop: 6, fontSize: 12 } },
