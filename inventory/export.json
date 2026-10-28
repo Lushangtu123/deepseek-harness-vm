@@ -1,0 +1,463 @@
+{
+  "schemaVersion": 1,
+  "configuration": "workbench-v18",
+  "source": "live dedicated VM and hash-matched host sources",
+  "guestFiles": {
+    "guest-home/.dsh-improved/cordis.patch.yml": {
+      "sourceSha256": "a0fa22c9366802c73beba011f671f3e256ccd18206a71004bc50d13082b3dd3d",
+      "sha256": "a0fa22c9366802c73beba011f671f3e256ccd18206a71004bc50d13082b3dd3d"
+    },
+    "guest-home/.dsh-improved/AGENTS.md": {
+      "sourceSha256": "b0366fce95984e239f0ad57eaf295631958356939db0d89f861a6c9d188b3a89",
+      "sha256": "b0366fce95984e239f0ad57eaf295631958356939db0d89f861a6c9d188b3a89"
+    },
+    "guest-home/.dsh-improved/prompt-inject.md": {
+      "sourceSha256": "dec02209f23a50f3340caf71695711482c73731ff859be4f94b9f3c41a033b1b",
+      "sha256": "dec02209f23a50f3340caf71695711482c73731ff859be4f94b9f3c41a033b1b"
+    },
+    "guest-home/.dsh-improved/profiles/web/cordis.patch.yml": {
+      "sourceSha256": "085260af1cef3a12c95560a9dac600e18a7f6b514cda2718ec156e56ae97c843",
+      "sha256": "085260af1cef3a12c95560a9dac600e18a7f6b514cda2718ec156e56ae97c843"
+    },
+    "guest-home/.dsh-improved/profiles/web/cordis.yml": {
+      "sourceSha256": "c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e",
+      "sha256": "c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e"
+    },
+    "guest-home/.dsh-improved/profiles/web/package.json": {
+      "sourceSha256": "ee9f8b811446718b1f5b3052d79a3688c49e5d20d7642af32cccb0e7903707c6",
+      "sha256": "ee9f8b811446718b1f5b3052d79a3688c49e5d20d7642af32cccb0e7903707c6"
+    },
+    "guest-home/.config/harness-vm-mode": {
+      "sourceSha256": "8452041bcae35587f9f3ae42653ed937837da105bed69d8c38a42d76601bf0b3",
+      "sha256": "8452041bcae35587f9f3ae42653ed937837da105bed69d8c38a42d76601bf0b3"
+    },
+    "guest-home/.config/systemd/user/dsh-original.service": {
+      "sourceSha256": "2e88b00e4aa6318e2760481e7c99a89fcb23cc8047edb32487630af0bf1a0b73",
+      "sha256": "2e88b00e4aa6318e2760481e7c99a89fcb23cc8047edb32487630af0bf1a0b73"
+    },
+    "guest-home/.config/systemd/user/dsh-original.service.d/30-personal-switch.conf": {
+      "sourceSha256": "c5b56857e107f621bbe12f6b07bb904fc37e631789bbad65c21ecb3fbc77cc7a",
+      "sha256": "c5b56857e107f621bbe12f6b07bb904fc37e631789bbad65c21ecb3fbc77cc7a"
+    },
+    "guest-home/.local/bin/harness-vm-web": {
+      "sourceSha256": "a3603aa5a849940d2824fdf088aea6feac65a4486e4e3025a2abe63d7b7773fa",
+      "sha256": "a3603aa5a849940d2824fdf088aea6feac65a4486e4e3025a2abe63d7b7773fa"
+    },
+    "guest-home/.local/bin/toolchain-versions": {
+      "sourceSha256": "9cf974bae3e1afe04f6e45851532806e2f73e917269514e06f3bdc81e2a720c6",
+      "sha256": "9cf974bae3e1afe04f6e45851532806e2f73e917269514e06f3bdc81e2a720c6"
+    },
+    "guest-home/.local/bin/dsh": {
+      "sourceSha256": "e858af8e342fca0e3fe65e1b8e3b475b260549ec0bd0cbc90f761c03bb468854",
+      "sha256": "e858af8e342fca0e3fe65e1b8e3b475b260549ec0bd0cbc90f761c03bb468854"
+    },
+    "guest-home/.local/bin/codegraph": {
+      "sourceSha256": "706175d4bb85d6a3e1fb58f50a24fa7780797b2487fab45d4694aab5f9892a5a",
+      "sha256": "706175d4bb85d6a3e1fb58f50a24fa7780797b2487fab45d4694aab5f9892a5a"
+    },
+    "guest-home/.local/bin/reverse-case": {
+      "sourceSha256": "8b40dbc919b292b6bf5ad085526dd1460f7702604172e8e83df3a443b791ba79",
+      "sha256": "8b40dbc919b292b6bf5ad085526dd1460f7702604172e8e83df3a443b791ba79"
+    },
+    "guest-home/.local/bin/reverse-route": {
+      "sourceSha256": "5bedaa47061bb533549724d2ffebc1bb3f271c4b8d33a8dbc4b6a756b0a79f9b",
+      "sha256": "5bedaa47061bb533549724d2ffebc1bb3f271c4b8d33a8dbc4b6a756b0a79f9b"
+    },
+    "guest-home/.dsh-improved/agent-presets/personal-review/agent.cordis.yml": {
+      "sourceSha256": "6390a6cd27a6f480c0db21c8feec5ecf22d1a94f3d7dd0035c9458ecc31c21e6",
+      "sha256": "6390a6cd27a6f480c0db21c8feec5ecf22d1a94f3d7dd0035c9458ecc31c21e6"
+    },
+    "guest-home/.dsh-improved/agent-presets/personal-review/preset.yml": {
+      "sourceSha256": "c5802ddf572c5e3cac0e58ab53879769569bd473930b0b26cbbd370313bd1afe",
+      "sha256": "c5802ddf572c5e3cac0e58ab53879769569bd473930b0b26cbbd370313bd1afe"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/SKILL.md": {
+      "sourceSha256": "a24150589f64fbe8243e66b892a988f2389764f2d085a81a9d248ba6bd4a64e0",
+      "sha256": "a24150589f64fbe8243e66b892a988f2389764f2d085a81a9d248ba6bd4a64e0"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/assets/claude-desktop-codegraph.example.json": {
+      "sourceSha256": "4a1d90c132f11ccbac8329d4640b73a6970d942d7306f476b0f2252f521ffc8e",
+      "sha256": "4a1d90c132f11ccbac8329d4640b73a6970d942d7306f476b0f2252f521ffc8e"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/assets/deepseek-codegraph.example.yaml": {
+      "sourceSha256": "e984083e573348499398b2743b49b5fb9294cc1a293344955594671921dc6b5b",
+      "sha256": "e984083e573348499398b2743b49b5fb9294cc1a293344955594671921dc6b5b"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/references/host-adapters.md": {
+      "sourceSha256": "3abfc14a06c9e5ba3e09f942b2db7187aac2667e83198aed1dfcff796a14124e",
+      "sha256": "3abfc14a06c9e5ba3e09f942b2db7187aac2667e83198aed1dfcff796a14124e"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/references/native-setup.md": {
+      "sourceSha256": "d9001d74f984999e4126e9217a39c0926e22e7ffe0cf0e72b2ca183e67a0ec88",
+      "sha256": "d9001d74f984999e4126e9217a39c0926e22e7ffe0cf0e72b2ca183e67a0ec88"
+    },
+    "guest-home/.dsh-improved/skills/codegraph-bootstrap/scripts/inspect_dsh_config.py": {
+      "sourceSha256": "e80027267492c124bc31ebe1450fb794bf3a53753add5d81c2fbe56ec84200a1",
+      "sha256": "e80027267492c124bc31ebe1450fb794bf3a53753add5d81c2fbe56ec84200a1"
+    },
+    "guest-home/.dsh-improved/skills/pentagi/SKILL.md": {
+      "sourceSha256": "5470d3b8122a496ee38e5ccdce2150772b44168f7d5cdee156812e439627b856",
+      "sha256": "5470d3b8122a496ee38e5ccdce2150772b44168f7d5cdee156812e439627b856"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/SKILL.md": {
+      "sourceSha256": "5bda8d7d33f6bfeb01b0b4c8c098a982af1086062d4a69a3b0efabbcde1831b9",
+      "sha256": "5bda8d7d33f6bfeb01b0b4c8c098a982af1086062d4a69a3b0efabbcde1831b9"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/agents/openai.yaml": {
+      "sourceSha256": "ef28c618831dfa0e884cdbaf592807a5cec133da15e08e05dd8dcf1d747bb4d0",
+      "sha256": "ef28c618831dfa0e884cdbaf592807a5cec133da15e08e05dd8dcf1d747bb4d0"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/assets/templates/change-report.md": {
+      "sourceSha256": "184ca68248ae2d1a3b9d9565c4336ce146898721782b2b8904a1bc3bcfee9a62",
+      "sha256": "184ca68248ae2d1a3b9d9565c4336ce146898721782b2b8904a1bc3bcfee9a62"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/assets/templates/investment-memo.md": {
+      "sourceSha256": "e957d0eb9bde6ccf58c2cc1314a6195b2761a300abb5f42646a8d7559aff7de5",
+      "sha256": "e957d0eb9bde6ccf58c2cc1314a6195b2761a300abb5f42646a8d7559aff7de5"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/assets/templates/presentation-brief.md": {
+      "sourceSha256": "51faacb6b3eb51d8da92788f7e765b1418f93af758b49d019cdddef3d2703604",
+      "sha256": "51faacb6b3eb51d8da92788f7e765b1418f93af758b49d019cdddef3d2703604"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/assets/templates/project-brief.md": {
+      "sourceSha256": "f86a40cbbe2dbebdafe160c6f564dda2749ffb1f01371fba8372f984167f0445",
+      "sha256": "f86a40cbbe2dbebdafe160c6f564dda2749ffb1f01371fba8372f984167f0445"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/architecture-assessment.md": {
+      "sourceSha256": "36d07e4897018f133153f48bc6056f2a5ce2330f22805f869cf59a6b3e9a371d",
+      "sha256": "36d07e4897018f133153f48bc6056f2a5ce2330f22805f869cf59a6b3e9a371d"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/capability-routing.md": {
+      "sourceSha256": "52ff2300616fd02a96cc00919d6a567f3474c54fb8fe676837838fd98e1fc7e9",
+      "sha256": "52ff2300616fd02a96cc00919d6a567f3474c54fb8fe676837838fd98e1fc7e9"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/code-maintenance.md": {
+      "sourceSha256": "cbf4991337dc47ffb205162751fcb14d30907c8eefa492a51f184237bd9e0d05",
+      "sha256": "cbf4991337dc47ffb205162751fcb14d30907c8eefa492a51f184237bd9e0d05"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/codegraph-navigation.md": {
+      "sourceSha256": "594e881756580426ab71e0bc3b0a759b440fd7a286929a41a20557791a14073b",
+      "sha256": "594e881756580426ab71e0bc3b0a759b440fd7a286929a41a20557791a14073b"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/command-evidence.md": {
+      "sourceSha256": "2e7b0fefe73824ec1639e3ffde2ab48d9409ab9b912eddcf30c90e2aab73976b",
+      "sha256": "2e7b0fefe73824ec1639e3ffde2ab48d9409ab9b912eddcf30c90e2aab73976b"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/execution-preflight.md": {
+      "sourceSha256": "da6a5b62fdb0a2eba709521d1be2bc67625c9391a0789c4cce9676e1e4f4aa0f",
+      "sha256": "da6a5b62fdb0a2eba709521d1be2bc67625c9391a0789c4cce9676e1e4f4aa0f"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/functional-qa.md": {
+      "sourceSha256": "e4455d5c5e11b264f7f325d1b727dcba25fc4e06e20fa0b3f9a4cb4c04e7dd22",
+      "sha256": "e4455d5c5e11b264f7f325d1b727dcba25fc4e06e20fa0b3f9a4cb4c04e7dd22"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/github-remote-inspection.md": {
+      "sourceSha256": "05270e9e1823ca32f3cc04db7ed9d376d38c07f4ce8269c80a59202d9eaebfed",
+      "sha256": "05270e9e1823ca32f3cc04db7ed9d376d38c07f4ce8269c80a59202d9eaebfed"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/host-compatibility.md": {
+      "sourceSha256": "6113dceb3c8e9f471567b284bfcbc7eb78da3616367203edd34786b83be39a75",
+      "sha256": "6113dceb3c8e9f471567b284bfcbc7eb78da3616367203edd34786b83be39a75"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/investment-research.md": {
+      "sourceSha256": "5440e8b7f1f6f90da2c5d72812159e3f63c9e69113da5bc56cd8a711c57fc254",
+      "sha256": "5440e8b7f1f6f90da2c5d72812159e3f63c9e69113da5bc56cd8a711c57fc254"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/issue-intake.md": {
+      "sourceSha256": "f0a9795b63c1ab9a5e4e318dca1f16899bad3c2cc2aa6d9541d88190e510d6a5",
+      "sha256": "f0a9795b63c1ab9a5e4e318dca1f16899bad3c2cc2aa6d9541d88190e510d6a5"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/office-delivery.md": {
+      "sourceSha256": "586a956274bb95ba5080451bc1c350996bb9baa1a606b6124862d46db4f798ce",
+      "sha256": "586a956274bb95ba5080451bc1c350996bb9baa1a606b6124862d46db4f798ce"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/permissions.md": {
+      "sourceSha256": "f3a9d881ef7408bcff0d144a428795574b2ab8c2f9d9396928f224a327371c85",
+      "sha256": "f3a9d881ef7408bcff0d144a428795574b2ab8c2f9d9396928f224a327371c85"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/pr-maintenance.md": {
+      "sourceSha256": "e7f1a4caf830aea9cc8ed95f8b8a9c11d9d34bfad8bbdd856efa2898db857d72",
+      "sha256": "e7f1a4caf830aea9cc8ed95f8b8a9c11d9d34bfad8bbdd856efa2898db857d72"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/project-bootstrap.md": {
+      "sourceSha256": "db5aa0525ed588900ac77281f0c6196bca8da6fdcaa3dd0a17d4ec075731b351",
+      "sha256": "db5aa0525ed588900ac77281f0c6196bca8da6fdcaa3dd0a17d4ec075731b351"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/project-knowledge.md": {
+      "sourceSha256": "490889475c79a84ac3ba360c417f8ce90b40d2018d8cbecde2cc990d6c08d33b",
+      "sha256": "490889475c79a84ac3ba360c417f8ce90b40d2018d8cbecde2cc990d6c08d33b"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/quality-gates.md": {
+      "sourceSha256": "fa1dcf96c8a8844c8de313e2c44e8d3cc55cb349565c2dc223ffc9988c6633d2",
+      "sha256": "fa1dcf96c8a8844c8de313e2c44e8d3cc55cb349565c2dc223ffc9988c6633d2"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/security-patch-validation.md": {
+      "sourceSha256": "c69181a3cdd576639db3546b3a9198b24909897d5c4857696c7dc347e1deac40",
+      "sha256": "c69181a3cdd576639db3546b3a9198b24909897d5c4857696c7dc347e1deac40"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/skill-governance.md": {
+      "sourceSha256": "9c6da3c74867ba35a44c7e1aa61cdf0831f737ea4073186329c5ba1906b60fa3",
+      "sha256": "9c6da3c74867ba35a44c7e1aa61cdf0831f737ea4073186329c5ba1906b60fa3"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/task-retrospective.md": {
+      "sourceSha256": "35bd8d8e55601a8a64bb4b4e32adf85eac7491877aee6b371c82cadf7800c00f",
+      "sha256": "35bd8d8e55601a8a64bb4b4e32adf85eac7491877aee6b371c82cadf7800c00f"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/task-sizing.md": {
+      "sourceSha256": "b3934bd30cc434a6f1a4e17c7510dc6889695c363aa973de0533a69a878339a7",
+      "sha256": "b3934bd30cc434a6f1a4e17c7510dc6889695c363aa973de0533a69a878339a7"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/test-strategy.md": {
+      "sourceSha256": "6a7d746151479ec1e98976f7d0ceb9a37d800364a2392ce62b2c78b5b6878a03",
+      "sha256": "6a7d746151479ec1e98976f7d0ceb9a37d800364a2392ce62b2c78b5b6878a03"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/token-efficiency.md": {
+      "sourceSha256": "0d33dd88d66f74a3b4bd17501921d9d605022bcd7377aca0b844ef7867ba79a9",
+      "sha256": "0d33dd88d66f74a3b4bd17501921d9d605022bcd7377aca0b844ef7867ba79a9"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/user-profile.md": {
+      "sourceSha256": "35d76fadce8a7006cca129e9e1fb8b2d62930adcfca4a3a051ff5839f0694a74",
+      "sha256": "bd8d972a18d7024a009fa51572053d8e0c159c1baf2caaee703d130ad44fe5a9"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/version-aware-maintenance.md": {
+      "sourceSha256": "fc4de1ca0c05f7796ee430dea1d9efd1bf8574f04ea93b5a67cfe7b93aec0fd1",
+      "sha256": "fc4de1ca0c05f7796ee430dea1d9efd1bf8574f04ea93b5a67cfe7b93aec0fd1"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/work-coordination.md": {
+      "sourceSha256": "5ec8dc5d8dcb992e0422f73b9b52b3f2b8eee99d99e68134b1c4796449dd5032",
+      "sha256": "5ec8dc5d8dcb992e0422f73b9b52b3f2b8eee99d99e68134b1c4796449dd5032"
+    },
+    "guest-home/.dsh-improved/skills/personal-work-agent/scripts/evidence.py": {
+      "sourceSha256": "c79378f99193b827bcbd254c946bf69b7aa5ae1772672d594148814028af489e",
+      "sha256": "c79378f99193b827bcbd254c946bf69b7aa5ae1772672d594148814028af489e"
+    },
+    "guest-home/.dsh-improved/skills/project-builder/SKILL.md": {
+      "sourceSha256": "f347e89743fb9fbb35336e97192265b53097780736df29222139de8accb1dec7",
+      "sha256": "f347e89743fb9fbb35336e97192265b53097780736df29222139de8accb1dec7"
+    },
+    "guest-home/.dsh-improved/skills/project-builder/agents/openai.yaml": {
+      "sourceSha256": "4b6f5230ce57ddef04cad5b3286f5f9504a430d69d752adcfdb44626d11ef424",
+      "sha256": "4b6f5230ce57ddef04cad5b3286f5f9504a430d69d752adcfdb44626d11ef424"
+    },
+    "guest-home/.dsh-improved/skills/project-builder/references/acceptance.md": {
+      "sourceSha256": "446c26b0c2ec3a4dd422b565e76cf6feaf062b3b18d8ae25c8d768708e6d6039",
+      "sha256": "446c26b0c2ec3a4dd422b565e76cf6feaf062b3b18d8ae25c8d768708e6d6039"
+    },
+    "guest-home/.dsh-improved/skills/project-builder/references/pwa-handoff.md": {
+      "sourceSha256": "90d160a0eb5a8ee0c4a85b0b6eee739928f654c8e2f8495df01aa904111d22be",
+      "sha256": "90d160a0eb5a8ee0c4a85b0b6eee739928f654c8e2f8495df01aa904111d22be"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/SKILL.md": {
+      "sourceSha256": "8818b645c9fd348399a50a8678b91cff20215690adad484e70282ff9f2ef91ee",
+      "sha256": "8818b645c9fd348399a50a8678b91cff20215690adad484e70282ff9f2ef91ee"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/android-applications.md": {
+      "sourceSha256": "24ecaa1798eb4f28591884a7deb68df31e90313865515a23e3b466403f1abc39",
+      "sha256": "24ecaa1798eb4f28591884a7deb68df31e90313865515a23e3b466403f1abc39"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/connection-and-recovery.md": {
+      "sourceSha256": "4754441e63e4252a0b230cf5aa12b78c0716463905305059bb7dea6713ba0bfc",
+      "sha256": "4754441e63e4252a0b230cf5aa12b78c0716463905305059bb7dea6713ba0bfc"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/environments.md": {
+      "sourceSha256": "83e041f0a5243172af69eaadf62da0699617add3ff1d46b294e4bba7ece9d95f",
+      "sha256": "83e041f0a5243172af69eaadf62da0699617add3ff1d46b294e4bba7ece9d95f"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/evidence-workflows.md": {
+      "sourceSha256": "f44b68acc6ebaa60c1f5d0670e4f9ff7212d351a0ecc6e6ca77ce38b9177ea57",
+      "sha256": "f44b68acc6ebaa60c1f5d0670e4f9ff7212d351a0ecc6e6ca77ce38b9177ea57"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/javascript-applications.md": {
+      "sourceSha256": "619cfd15ffdf466452cc32002ae357fefec59d5dcad4c9dfc27630138f0f719d",
+      "sha256": "619cfd15ffdf466452cc32002ae357fefec59d5dcad4c9dfc27630138f0f719d"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/native-and-artifacts.md": {
+      "sourceSha256": "cf394568ae91e9017d63056adb8872fb1df9e2f6bbe544a95d0fd9f064b06dd5",
+      "sha256": "cf394568ae91e9017d63056adb8872fb1df9e2f6bbe544a95d0fd9f064b06dd5"
+    },
+    "guest-home/.dsh-improved/skills/reverse-engineer-anything/references/runtime-observation.md": {
+      "sourceSha256": "852bd1e25e9f83f0e8c7d4f8441a043e2b2a7d5e39f729bf22ac77259a0207bd",
+      "sha256": "852bd1e25e9f83f0e8c7d4f8441a043e2b2a7d5e39f729bf22ac77259a0207bd"
+    },
+    "guest-home/.dsh-improved/skills/reverse-skill/SKILL.md": {
+      "sourceSha256": "2247e238f7294bc13de667634782010b3934f934d8b7ba4bc05c1580c7f533a2",
+      "sha256": "2247e238f7294bc13de667634782010b3934f934d8b7ba4bc05c1580c7f533a2"
+    },
+    "guest-home/.dsh-improved/tooling/toolchain-version-checker/index.mjs": {
+      "sourceSha256": "6322b0ca1ec558a6f12869b6e0b8e16b33aa094570bec11a95797288268a2e58",
+      "sha256": "6322b0ca1ec558a6f12869b6e0b8e16b33aa094570bec11a95797288268a2e58"
+    },
+    "guest-home/.dsh-improved/tooling/toolchain-version-checker/process.mjs": {
+      "sourceSha256": "47577471f07138778545e6fac059565784ab1c57175e44e5c3b15a2f886ef177",
+      "sha256": "47577471f07138778545e6fac059565784ab1c57175e44e5c3b15a2f886ef177"
+    },
+    "guest-home/.dsh-improved/tooling/toolchain-version-checker/check_versions.py": {
+      "sourceSha256": "afdfaa57b34407e7090b54c6b620439539e792f5bf46130b8c1fa9c718b4fef2",
+      "sha256": "afdfaa57b34407e7090b54c6b620439539e792f5bf46130b8c1fa9c718b4fef2"
+    },
+    "guest-home/.dsh-improved/tooling/toolchain-version-checker/catalog.json": {
+      "sourceSha256": "048bb6974b38c828bfd966f5cba5887c4f91f48ed1c07bd7a0ffe2c89df23bbb",
+      "sha256": "048bb6974b38c828bfd966f5cba5887c4f91f48ed1c07bd7a0ffe2c89df23bbb"
+    },
+    "guest-home/.dsh/toolchain/pentagi/pentagi.compose.yml": {
+      "sourcePath": ".dsh/toolchain/pentagi/pentagi.compose.yml",
+      "sourceSha256": "f47997cae58bef98f8b2aa006c4a919f91f435d81b6cdd0d3e24f7781d9ae0c2",
+      "sha256": "f47997cae58bef98f8b2aa006c4a919f91f435d81b6cdd0d3e24f7781d9ae0c2"
+    },
+    "guest-home/.dsh/toolchain/pentagi/Worker.Dockerfile": {
+      "sourcePath": ".dsh/toolchain/pentagi/Worker.Dockerfile",
+      "sourceSha256": "32de692ac14d7112842617d18c9d869407ab933f9bd3155d266657714ed38e17",
+      "sha256": "32de692ac14d7112842617d18c9d869407ab933f9bd3155d266657714ed38e17"
+    },
+    "guest-home/.dsh/toolchain/pentagi/deepseek-vm.provider.yml": {
+      "sourcePath": ".dsh/toolchain/pentagi/deepseek-vm.provider.yml",
+      "sourceSha256": "cfdb2e5db519fad8473398e9a6a2aa13c3da0f64fad0434d0a8b30bb5a7a7bd4",
+      "sha256": "cfdb2e5db519fad8473398e9a6a2aa13c3da0f64fad0434d0a8b30bb5a7a7bd4"
+    },
+    "guest-home/tools/harness-improved-runtime/package.json": {
+      "sourcePath": "tools/harness-improved-runtime/package.json",
+      "sourceSha256": "7142558726ec913b8c6e4c65a3a01f3f557245bec60f12e1738b80ae1e5e24e3",
+      "sha256": "7142558726ec913b8c6e4c65a3a01f3f557245bec60f12e1738b80ae1e5e24e3"
+    },
+    "guest-home/tools/rea-runtime/package.json": {
+      "sourcePath": "tools/rea-runtime/package.json",
+      "sourceSha256": "29f0b3fce7c59c841deebdede958c7babdc0ce1df09a430808ec3787819e94c3",
+      "sha256": "29f0b3fce7c59c841deebdede958c7babdc0ce1df09a430808ec3787819e94c3"
+    },
+    "guest-home/tools/codegraph-1.6.2/package.json": {
+      "sourcePath": "tools/codegraph-1.6.2/package.json",
+      "sourceSha256": "63e6b4811c6b404dde50e4a21acc7a51add9917ba648b7f667c7d4c83dd889ea",
+      "sha256": "63e6b4811c6b404dde50e4a21acc7a51add9917ba648b7f667c7d4c83dd889ea"
+    },
+    "guest-home/.dsh/toolchain/pentagi-cli.py": {
+      "sourcePath": ".dsh/toolchain/pentagi-cli.py",
+      "sourceSha256": "6894fdd4255d14010f4717f137cdad08d8d34db8fe7edf97d0ae5b9443447382",
+      "sha256": "6894fdd4255d14010f4717f137cdad08d8d34db8fe7edf97d0ae5b9443447382"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tools/lib/index.js": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tools/lib/index.js",
+      "sourceSha256": "1e53932e7c4213ea24a7d87f06960b7a7702cb21f8a5741c97242b4a470a442a",
+      "sha256": "1e53932e7c4213ea24a7d87f06960b7a7702cb21f8a5741c97242b4a470a442a"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tools/package.json": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tools/package.json",
+      "sourceSha256": "625629cc08e44e134a9861a4d26b2f3a6d70bc2e50b12279275061607d7d702a",
+      "sha256": "625629cc08e44e134a9861a4d26b2f3a6d70bc2e50b12279275061607d7d702a"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tools/LICENSE": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tools/LICENSE",
+      "sourceSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tool-bash/lib/index.js": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tool-bash/lib/index.js",
+      "sourceSha256": "a1215d7bcaf82c0755be48321ef6bb45075f1cb33296d6263009e9d10fd596f6",
+      "sha256": "a1215d7bcaf82c0755be48321ef6bb45075f1cb33296d6263009e9d10fd596f6"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tool-bash/package.json": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tool-bash/package.json",
+      "sourceSha256": "8dd9d1846fd3ce9deeeeb4e5152390b8cd23818d08ed345e5eaca10530b33e06",
+      "sha256": "8dd9d1846fd3ce9deeeeb4e5152390b8cd23818d08ed345e5eaca10530b33e06"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-tool-bash/LICENSE": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-tool-bash/LICENSE",
+      "sourceSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-permission-presets/lib/index.js": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-permission-presets/lib/index.js",
+      "sourceSha256": "4f23c620145098d611d04d8363bc6716f49b26930c9141a21dc9a8df2b72ba63",
+      "sha256": "4f23c620145098d611d04d8363bc6716f49b26930c9141a21dc9a8df2b72ba63"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-permission-presets/package.json": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-permission-presets/package.json",
+      "sourceSha256": "3d2c934b4e3befffc4bd69ad1586518e3dba179059de338a47008082599747f2",
+      "sha256": "3d2c934b4e3befffc4bd69ad1586518e3dba179059de338a47008082599747f2"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-permission-presets/LICENSE": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-permission-presets/LICENSE",
+      "sourceSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-user-approval/lib/index.js": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-user-approval/lib/index.js",
+      "sourceSha256": "6a5ad1ba3c3dc3abbbae52e6c8c4463970ee0c1c8988cebb0d5cf2acd17ee90b",
+      "sha256": "6a5ad1ba3c3dc3abbbae52e6c8c4463970ee0c1c8988cebb0d5cf2acd17ee90b"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-user-approval/package.json": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-user-approval/package.json",
+      "sourceSha256": "4b99da619ffb88053bb43d8ecec7aaa6aa900862220d5665b0743954e7212fde",
+      "sha256": "4b99da619ffb88053bb43d8ecec7aaa6aa900862220d5665b0743954e7212fde"
+    },
+    "runtime-overrides/@deepseek-ai/dsh-user-approval/LICENSE": {
+      "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-user-approval/LICENSE",
+      "sourceSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+    }
+  },
+  "sanitizedGuestFiles": [
+    "guest-home/.dsh-improved/skills/personal-work-agent/references/user-profile.md"
+  ],
+  "excluded": [
+    "credentials",
+    "SSH keys",
+    "authentication URLs",
+    "sessions",
+    "databases",
+    "logs",
+    "VM images",
+    "recovery archives",
+    "usage history",
+    "personal user profile"
+  ],
+  "knownCredentialsExcluded": 3,
+  "plugins": [
+    {
+      "name": "dsh-context",
+      "version": "0.75.1",
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/bowenliang123/dsh-context.git"
+      }
+    },
+    {
+      "name": "dsh-whale-widget",
+      "version": "0.4.2",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget.git"
+      }
+    },
+    {
+      "name": "dshmarket",
+      "version": "1.70.2",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/dsh-market/dsh-market.git"
+      }
+    }
+  ],
+  "toolchain": {
+    "rea": {
+      "repository": "https://github.com/morluto/rea",
+      "revision": "160d821ac9a0310afcb8d1fc427862dd6508add5",
+      "npmVersion": "6.8.0",
+      "zodOverride": "4.6.6"
+    },
+    "reverse-skill": {
+      "repository": "zhaoxuya520/reverse-skill",
+      "commit": "cab634bd855fc287f6e420c1f36fd1a6b9245960"
+    },
+    "pentagi": {
+      "repository": "vxcontrol/pentagi",
+      "registryManifestDigest": "sha256:623cad3f7b6a5b58ce855d5927f68eb664f19fda181f05a7dcabe1c2132ea375",
+      "imageConfigDigest": "sha256:29ebbf4709bff76fe23c2eff5b2e1796e780963172b6c755ea065170cf81e56e",
+      "revision": "cffed9485aa1cca70762cd08a57ac62a80406258",
+      "platform": "linux/arm64"
+    }
+  },
+  "recoveryPoint": "ready-workbench-v18-20261027"
+}
