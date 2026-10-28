@@ -33,4 +33,6 @@ class Backup(unittest.TestCase):
   p=self.root/'inventory/export.json';d=json.loads(p.read_text());d['guestFiles']={'guest-home/missing':{}};p.write_text(json.dumps(d))
   self.expected={str(p.relative_to(self.root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in self.root.rglob('*') if p.is_file() and p!=self.manifest};self.manifest.write_text(json.dumps(self.expected))
   for flags in [(),('-O',)]:self.assertNotEqual(self.run_check(*flags).returncode,0)
+ def test_repository_execute_bit_loss_fails_even_when_bytes_match(self):
+  p=self.root/'guest-home/.local/bin/harness-vm-web';p.chmod(0o600);r=self.run_check('-O');self.assertNotEqual(r.returncode,0);d=json.loads(r.stdout);self.assertGreater(d['integrityFindings'],0);self.assertEqual(p.stat().st_mode&0o777,0o600)
 if __name__=='__main__':unittest.main()

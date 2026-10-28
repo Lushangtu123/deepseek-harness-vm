@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Read-only export checks; failures remain failures with Python optimization."""
 from pathlib import Path,PurePosixPath
-import ast,hashlib,json,re
+import ast,hashlib,json,re,os,stat
+
+EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route'}
 
 PATTERNS={
  'provider-key':re.compile(rb'\bsk-[A-Za-z0-9_-]{20,}\b'),
@@ -64,6 +66,14 @@ def verify(root):
   if not isinstance(row,dict):raise ValueError('Invalid guest inventory')
   if digest(name)==row.get('sha256'):guest_count+=1
   else:issue('integrity','guest-mismatch',name)
+ modes=ledger.get('executionRequirements')
+ if not isinstance(modes,dict) or set(modes)!=EXECUTABLES or any(type(mode) is not int or not 0 <= mode <= 0o777 or not mode&0o100 for mode in modes.values()):raise ValueError('Invalid executable inventory')
+ for relative in modes:
+  matches=[name for name,row in guest.items() if (row.get('sourcePath') or (name[len('guest-home/'):] if name.startswith('guest-home/') else None))==relative]
+  if len(matches)!=1:raise ValueError('Invalid executable source')
+  name=matches[0];p=root/name
+  # Git preserves the executable class, not the exact private VM mode (0700/0755).
+  if p.resolve()!=p or not p.is_file() or not p.stat().st_mode&stat.S_IXUSR or not os.access(p,os.X_OK):issue('integrity','execute-unavailable',name)
  return {'ok':not issues,'filesMatched':sum(actual.get(k)==v for k,v in expected.items()),'expectedFiles':len(expected),'programFilesMatched':program_count,'programExpected':len(source),'guestFilesMatched':guest_count,'guestExpected':len(guest),'textFilesChecked':text_count,'upstreamImageFiles':binary_count,'credentialPatternFindings':sum(x['category']=='credential' for x in issues),'integrityFindings':sum(x['category']=='integrity' for x in issues),'unsupportedFindings':sum(x['category']=='unsupported' for x in issues),'issues':issues,'scope':'integrity, Python/JSON parse and fixed credential patterns; not a complete security audit'}
 
 def main():

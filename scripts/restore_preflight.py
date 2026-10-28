@@ -3,6 +3,8 @@
 from pathlib import Path,PurePosixPath
 import argparse,getpass,hashlib,json,os,platform,re,stat,sys
 
+EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route'}
+
 def safe_name(value):
  return isinstance(value,str) and bool(value) and not PurePosixPath(value).is_absolute() and '\\' not in value and not any(x in {'','..','.'} for x in value.split('/'))
 
@@ -29,6 +31,10 @@ def assess(home,inventory,observed=None):
   for name,digest in program.items():
    if not safe_name(name) or not isinstance(digest,str) or not re.fullmatch('[a-f0-9]{64}',digest):raise ValueError()
    names.append(('tools/dsh-purge-personal-1.1.77-personal.1/'+name,digest))
+  modes=inventory.get('executionRequirements')
+  if not isinstance(modes,dict) or set(modes)!=EXECUTABLES:raise ValueError()
+  if any(type(mode) is not int or not 0 <= mode <= 0o777 or not mode&0o100 for mode in modes.values()):raise ValueError()
+  if not set(modes)<=set(relative for relative,_ in names):raise ValueError()
   for key in ['pluginRoot','reverseDirectory','ghidraDirectory']:
    if not safe_name(target[key]):raise ValueError()
   plugins=inventory['plugins']
@@ -60,6 +66,14 @@ def assess(home,inventory,observed=None):
   raw,state=read(relative)
   if state=='ok' and hashlib.sha256(raw).hexdigest()!=want:state='different'
   row('file:'+relative,state,relative)
+ for relative,want in modes.items():
+  _,state=read(relative)
+  if state=='ok':
+   try:
+    path=home/relative
+    state='ok' if stat.S_IMODE(path.stat().st_mode)==want and os.access(path,os.X_OK) else 'different'
+   except OSError:state='unknown'
+  row('mode:'+relative,state,relative)
  def version(identity,relative,want):
   raw,state=read(relative)
   if state=='ok':

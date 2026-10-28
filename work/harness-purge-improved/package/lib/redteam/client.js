@@ -3489,6 +3489,32 @@ window.__ModuleLoader__.load({
      * 打内网最容易出的问题：拿到 WebShell 或隧道之后忘了登记，过一会儿就"忘了还有入口可用"。
      * 这个页签把事实库里的 WebShell 与隧道集中展示，带连通状态，并可一键让 host 侧实测。
      */
+    // Accept a whole snapshot before exposing any records or actions. Missing data is unknown.
+    function validSessionSnapshot(value) {
+      const record = v => v !== null && typeof v === 'object' && !Array.isArray(v)
+      const count = v => Number.isSafeInteger(v) && v >= 0
+      if (!record(value) || value.ok !== true || !Array.isArray(value.webshells) || !Array.isArray(value.tunnels) || !record(value.totals)) return false
+      const fields = ['url', 'shell_type', 'privilege', 'asset_ip', 'secret_ref', 'check_note', 'note', 'pass_key', 'status', 'listen', 'kind', 'entry_kind_label', 'entry_kind', 'reach', 'entry', 'command']
+      const rowsValid = rows => {
+        const ids = new Set()
+        return rows.every(row => {
+          if (!record(row) || !Number.isSafeInteger(row.id) || row.id <= 0 || ids.has(row.id)) return false
+          ids.add(row.id)
+          return fields.every(key => row[key] == null || typeof row[key] === 'string')
+            && (row.legit == null || typeof row.legit === 'boolean')
+            && (row.last_check == null || typeof row.last_check === 'string' || (typeof row.last_check === 'number' && Number.isFinite(row.last_check)))
+            && (row.latency_ms == null || (typeof row.latency_ms === 'number' && Number.isFinite(row.latency_ms) && row.latency_ms >= 0))
+        })
+      }
+      if (!rowsValid(value.webshells) || !rowsValid(value.tunnels)) return false
+      const t = value.totals, shells = value.webshells, tunnels = value.tunnels
+      return ['webshells', 'webshellsOnline', 'tunnels', 'tunnelsActive', 'tunnelsLegit', 'tunnelsSelfOnly', 'credentials', 'access'].every(key => count(t[key]))
+        && t.webshells === shells.length && t.webshellsOnline === shells.filter(row => row.status === 'online').length
+        && t.tunnels === tunnels.length && t.tunnelsActive === tunnels.filter(row => row.status === 'active').length
+        && t.tunnelsLegit === tunnels.filter(row => row.legit === true).length
+        && t.tunnelsSelfOnly === tunnels.filter(row => row.legit === false).length
+    }
+
     function SessionTab(props) {
       const eng = props.engagement
       const refreshKey = props.refreshKey || 0
@@ -3515,7 +3541,7 @@ window.__ModuleLoader__.load({
         const ownsRead = () => mounted.current && owner.current === view && generation.current === next
         api({ op: 'sessions', engagement: eng }, { signal: controller.signal }).then(r => {
           if (!ownsRead()) return
-          if (!r?.ok) { setErr({ view, text: '当前项目记录读取失败，请刷新核对。' }); return }
+          if (!validSessionSnapshot(r)) { setErr({ view, text: '当前项目记录读取未确认，请刷新核对。' }); return }
           setData({ ...r, view, token: next })
         }, () => { if (ownsRead()) setErr({ view, text: '当前项目记录读取未确认，请刷新核对。' }) })
           .finally(() => { if (ownsRead()) setLoading(false) })
@@ -3600,7 +3626,7 @@ window.__ModuleLoader__.load({
             ? h('span', { className: 'rt-tag', style: { color: '#10b981' } }, '已复制')
             : h('button', {
                 className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 },
-                onClick: () => copy('cmd' + w.id, 'curl -s "' + w.url + '"'),
+                onClick: () => copy('cmd' + w.id, w.url || ''),
               }, '复制 URL'),
           h('button', {
             className: 'rt-btn', disabled: busy || !ready, style: { padding: '0 6px', fontSize: 11 },
@@ -3695,18 +3721,18 @@ window.__ModuleLoader__.load({
           hints.length ? h('div', { style: { padding: '8px 10px 0' } }, hints) : null,
           h(Section, {
             key: 'webshells', tone: 'queue', title: 'WebShell',
-            count: (totals.webshellsOnline || 0) + '/' + (totals.webshells || 0) + ' 在线',
+            count: current ? totals.webshellsOnline + '/' + totals.webshells + ' 在线' : '待核对',
             sub: '已上线的可控入口',
             open: sessCollapse.isOpen('shells', true), onToggle: sessCollapse.toggle('shells', true),
-          }, shells.length
+          }, !current ? h('div', { className: 'rt-atest-meta' }, '记录未确认') : shells.length
             ? h('div', { className: 'rt-sess-grid', style: { padding: 0 } }, shellCards)
             : h('div', { className: 'rt-atest-meta' }, '暂无（拿到 WebShell 后用 redteam_webshell_add 登记）')),
           h(Section, {
             key: 'tunnels', tone: 'test', title: '内网隧道',
-            count: (totals.tunnelsActive || 0) + '/' + (totals.tunnels || 0) + ' 可用',
+            count: current ? totals.tunnelsActive + '/' + totals.tunnels + ' 可用' : '待核对',
             sub: '可直接给扫描器当代理用',
             open: sessCollapse.isOpen('tunnels', true), onToggle: sessCollapse.toggle('tunnels', true),
-          }, tunnels.length
+          }, !current ? h('div', { className: 'rt-atest-meta' }, '记录未确认') : tunnels.length
             ? h('div', { className: 'rt-sess-grid', style: { padding: 0 } }, tunnelCards)
             : h('div', { className: 'rt-atest-meta' }, '暂无（建好隧道后用 redteam_tunnel_add 登记）'))))
 

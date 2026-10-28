@@ -234,7 +234,7 @@ test('A late credential reveal cannot display its secret in the next project', a
 
 test('Session and report views do not display a legacy raw connection password', async () => {
   const shell = { id: 2, shell_type: 'behinder', url: 'http://lab.local/', pass_key: 'synthetic-legacy-connection-secret' }
-  const h = host(async () => response({ ok: true, webshells: [shell], totals: {} }))
+  const h = host(async () => response({ ok: true, webshells: [shell], tunnels: [], totals: {webshells:1,webshellsOnline:0,tunnels:0,tunnelsActive:0,tunnelsLegit:0,tunnelsSelfOnly:0,credentials:0,access:0} }))
   h.mount('SessionTab', { engagement: 'A' }); await flush()
   assert.doesNotMatch(text(h.render()), /synthetic-legacy-connection-secret/)
   h.unmount()

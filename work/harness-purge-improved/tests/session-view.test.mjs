@@ -9,7 +9,7 @@ vm.runInNewContext(fixture.slice(fixture.indexOf('function host('),fixture.index
 const {host,nodes,text,button}=scope
 const flush=async()=>{for(let i=0;i<32;i++)await Promise.resolve()}
 const response=data=>({ok:true,status:200,json:async()=>data})
-const data=(name,status='active')=>({ok:true,webshells:[],tunnels:[{id:1,listen:name,status}],totals:{tunnels:1,tunnelsActive:status==='active'?1:0}})
+const data=(name,status='active')=>({ok:true,webshells:[],tunnels:[{id:1,listen:name,status}],totals:{webshells:0,webshellsOnline:0,tunnels:1,tunnelsActive:status==='active'?1:0,tunnelsLegit:0,tunnelsSelfOnly:0,credentials:0,access:0}})
 function pendingHost(){
  const pending=[],writes=[]
  const h=host((_url,opts)=>{const req=JSON.parse(opts.body);if(req.op==='sessions')return new Promise(resolve=>pending.push({req,resolve}));writes.push(req);return Promise.resolve(response({ok:true}))})
@@ -66,6 +66,6 @@ test('Unavailable panel probing is explained and cannot issue a request',async()
  try{h.mount('SessionTab',{engagement:'A'});await flush();const tree=h.render();assert.equal(button(tree,'检测连通性').props.disabled,true);assert.match(text(tree),/当前面板不发起主动检测/);assert.equal(calls.some(q=>q.op==='probeSessions'),false)}finally{h.unmount()}
 })
 test('A missing tunnel hint does not direct users to the disabled probe button',async()=>{
- const h=host(async()=>response({ok:true,webshells:[{id:1,url:'synthetic-webshell',shell_type:'behinder'}],tunnels:[],totals:{}}))
+ const h=host(async()=>response({ok:true,webshells:[{id:1,url:'synthetic-webshell',shell_type:'behinder'}],tunnels:[],totals:{webshells:1,webshellsOnline:0,tunnels:0,tunnelsActive:0,tunnelsLegit:0,tunnelsSelfOnly:0,credentials:0,access:0}}))
  try{h.mount('SessionTab',{engagement:'A'});await flush();const tree=h.render();assert.doesNotMatch(text(tree),/最后点「检测连通性」/);assert.match(text(tree),/会话中.*范围/)}finally{h.unmount()}
 })

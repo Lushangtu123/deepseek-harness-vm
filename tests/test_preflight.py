@@ -15,6 +15,9 @@ class Preflight(unittest.TestCase):
   for directory in ['tools/reverse-skill/reverse-skill-fixture','tools/ghidra_12.1.4_PUBLIC']:(self.home/directory).mkdir(parents=True)
   self.put('tools/reverse-skill/reverse-skill-fixture/AGENTS.md','fixture')
   self.put('tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless','fixture').chmod(0o755)
+  self.inventory['executionRequirements']={name:0o700 for name in ['.local/bin/harness-vm-web','.local/bin/toolchain-versions','.local/bin/dsh','.local/bin/codegraph','.local/bin/reverse-case','.local/bin/reverse-route','.dsh/toolchain/pentagi-cli.py']}
+  for name,mode in self.inventory['executionRequirements'].items():
+   p=self.put(name,'#!/bin/sh\nexit 0\n');p.chmod(mode);self.inventory['guestFiles']['guest-home/'+name]={'sourceSha256':hashlib.sha256(p.read_bytes()).hexdigest()}
   self.secret='synthetic-local-credential-value'
   self.put('.dsh-improved/.credentials.yaml',json.dumps({'refs':{'DEEPSEEK_API_KEY':self.secret}})).chmod(0o600)
   self.put('.dsh/toolchain/pentagi-admin.json',json.dumps({'password':self.secret,'passwordChanged':True})).chmod(0o600)
@@ -41,4 +44,11 @@ class Preflight(unittest.TestCase):
   self.assertFalse(self.assess()['ok'])
  def test_empty_tool_directories_cannot_be_reported_installed(self):
   (self.home/'tools/reverse-skill/reverse-skill-fixture/AGENTS.md').unlink();(self.home/'tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless').unlink();self.assertFalse(self.assess()['ok'])
+ def test_lost_execute_bit_is_a_failure_without_chmod_repair(self):
+  p=self.home/'.local/bin/harness-vm-web';p.chmod(0o600);r=self.assess();self.assertFalse(r['ok']);self.assertEqual(p.stat().st_mode&0o777,0o600);self.assertTrue(any(x['id']=='mode:.local/bin/harness-vm-web' and x['state']!='ok' for x in r['checks']))
+ def test_unexpected_broader_mode_is_reported_without_repair(self):
+  p=self.home/'.local/bin/toolchain-versions';p.chmod(0o777);self.assertFalse(self.assess()['ok']);self.assertEqual(p.stat().st_mode&0o777,0o777)
+ def test_missing_or_malformed_mode_inventory_cannot_pass(self):
+  for value in [{},{'.local/bin/harness-vm-web':True}]:
+   self.inventory['executionRequirements']=value;self.assertFalse(self.assess()['ok'])
 if __name__=='__main__':unittest.main()
