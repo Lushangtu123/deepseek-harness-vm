@@ -1985,24 +1985,33 @@ window.__ModuleLoader__.load({
      * A = 竖向链（详细）；B = 横向链（一屏看完）。
      */
     function ChainTab(props) {
-      const eng = props.engagement
-      const refreshKey = props.refreshKey || 0
-      const [data, setData] = React.useState(null)
-      const [err, setErr] = React.useState(null)
+      const eng = props.engagement, refreshKey = props.refreshKey || 0
+      const [snapshot, setData] = React.useState(null)
+      const [error, setErr] = React.useState(null)
       const [loading, setLoading] = React.useState(false)
       const [view, setView] = React.useState('A')
       const [openId, setOpenId] = React.useState(null)
-
+      const generation = React.useRef(0), reader = React.useRef(null), mounted = React.useRef(true)
+      const owner = React.useRef({ eng, refreshKey })
+      if (owner.current.eng !== eng || owner.current.refreshKey !== refreshKey) owner.current = { eng, refreshKey }
+      const page = owner.current
+      const data = snapshot?.page === page && snapshot.token === generation.current ? snapshot : null
+      const err = error?.page === page ? error.text : null
       const load = () => {
-        if (!eng) return
-        setLoading(true)
-        api({ op: 'scoreChain', engagement: eng }).then((r) => {
-          setLoading(false)
-          if (!r || r.ok === false) { setErr((r && r.error) || '读取失败'); return }
-          setErr(null); setData(r)
-        }, (e) => { setLoading(false); setErr(String((e && e.message) || e)) })
+        if (!eng || !mounted.current || owner.current !== page) return
+        const next = ++generation.current, controller = new AbortController()
+        reader.current?.abort(); reader.current = controller
+        setLoading(true); setData(null); setErr(null); setOpenId(null)
+        const owns = () => mounted.current && owner.current === page && generation.current === next
+        api({ op: 'scoreChain', engagement: eng }, { signal: controller.signal }).then(r => {
+          if (!owns()) return
+          if (r?.ok !== true || !Array.isArray(r.stages) || !r.summary) { setErr({ page, text: '当前项目攻击链未确认，请刷新核对。' }); return }
+          setData({ ...r, page, token: next })
+        }, () => { if (owns()) setErr({ page, text: '当前项目攻击链未确认，请刷新核对。' }) })
+          .finally(() => { if (owns()) setLoading(false) })
       }
-      React.useEffect(load, [eng, refreshKey])
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; reader.current?.abort() } }, [])
+      React.useEffect(() => { load(); return () => { generation.current++; reader.current?.abort() } }, [eng, refreshKey])
 
       const stages = (data && data.stages) || []
       const summary = (data && data.summary) || null
@@ -2153,6 +2162,7 @@ window.__ModuleLoader__.load({
           h('button', { className: 'rt-btn' + (view === 'A' ? ' rt-btn-primary' : ''), title: '竖向攻击链：逐阶段向下看细节', onClick: () => setView('A') }, '链路 A'),
           h('button', { className: 'rt-btn' + (view === 'B' ? ' rt-btn-primary' : ''), title: '横向攻击链：一屏看完五个阶段', onClick: () => setView('B') }, '链路 B'),
           h('button', { className: 'rt-btn', disabled: loading, onClick: load }, loading ? '加载中…' : '刷新')),
+        !data ? h('div', { className: 'rt-note', role: 'status' }, loading ? '正在核对当前项目攻击链…' : '当前项目攻击链未确认，请刷新核对。') : null,
         err ? h('div', { className: 'rt-err' }, err) : null,
         !stages.length && !err && data !== null
           ? h('div', { className: 'rt-empty' }, '还没有得分记录。拿到成果后用 redteam_score_hit 记分，这条链才会长出来。')
@@ -2785,78 +2795,111 @@ window.__ModuleLoader__.load({
     function EnvTab(props) {
       const refreshKey = props.refreshKey || 0
       const [data, setData] = React.useState(null)
-      const [draft, setDraft] = React.useState(null)
+      const [draft, setDraftState] = React.useState(null)
       const [err, setErr] = React.useState(null)
       const [msg, setMsg] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
-      const [folderPath, setFolderPath] = React.useState('')
-
-      const applyDraftFrom = (r) => {
-        const c = (r && r.config) || {}
-        setDraft({
-          platform: c.platform || 'auto',
-          toolkitDir: c.toolkitDir || '',
-          nucleiTemplatesDir: c.nucleiTemplatesDir || '',
-          binDirsText: (c.binDirs || []).join('\n'),
-          tools: Object.assign({}, c.tools || {}),
-          env: Object.assign({ FOFA_KEY: '', REDTEAM_VPS_HOST: '', REDTEAM_VPS_KEY: '' }, c.env || {}),
-          notes: c.notes || '',
-        })
-        if (c.toolkitDir) setFolderPath(c.toolkitDir)
-      }
-
-      const load = () => {
-        setBusy(true); setMsg(null)
-        api({ op: 'platformConfigGet' }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setErr((r && r.error) || '读取失败'); return }
-          setErr(null); setData(r)
-          applyDraftFrom(r)
-        }, (e) => { setBusy(false); setErr(String((e && e.message) || e)) })
-      }
-      React.useEffect(load, [refreshKey])
-
-      const save = () => {
-        if (!draft) return
-        setBusy(true); setMsg(null)
-        const config = {
-          platform: draft.platform,
-          toolkitDir: draft.toolkitDir,
-          nucleiTemplatesDir: draft.nucleiTemplatesDir,
-          binDirs: String(draft.binDirsText || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
-          tools: draft.tools,
-          env: draft.env,
-          notes: draft.notes,
-          envAdaptConfigured: true,
-          envAdaptSkip: false,
+      const [dirty, setDirty] = React.useState(false)
+      const editor = React.useRef(null), touched = React.useRef(new Map()), revision = React.useRef(0)
+      const mounted = React.useRef(true), generation = React.useRef(0), reader = React.useRef(null)
+      const writing = React.useRef(null), reading = React.useRef(false), confirmed = React.useRef(false)
+      const latest = React.useRef(null), refreshAfter = React.useRef(false)
+      const folderPath = draft?.assignDirectory || ''
+      const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+      const validConfig = r => r?.ok === true && record(r.config)
+        && (r.config.binDirs == null || Array.isArray(r.config.binDirs))
+        && (r.tools == null || (record(r.tools) && Array.isArray(r.tools.items)))
+      const makeDraft = r => {
+        const c = r.config
+        return {
+          platform: c.platform || 'auto', toolkitDir: c.toolkitDir || '', nucleiTemplatesDir: c.nucleiTemplatesDir || '',
+          binDirsText: (c.binDirs || []).join('\n'), tools: { ...(c.tools || {}) },
+          env: { FOFA_KEY: '', REDTEAM_VPS_HOST: '', REDTEAM_VPS_KEY: '', ...(c.env || {}) }, notes: c.notes || '',
+          assignDirectory: c.toolkitDir || '',
         }
-        api({ op: 'platformConfigSave', config }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setMsg({ err: (r && r.error) || '保存失败' }); return }
-          setData(r)
-          setMsg({ ok: '已保存到 ' + ((r.config && r.config.path) || '$DSH_HOME/redteam/config.json') })
-          applyDraftFrom(r)
-        }, (e) => { setBusy(false); setMsg({ err: String((e && e.message) || e) }) })
       }
-
-      const assignFolder = () => {
-        const dir = String(folderPath || (draft && draft.toolkitDir) || '').trim()
-        if (!dir) { setMsg({ err: '请先填写工具所在文件夹路径' }); return }
+      const replaceDraft = value => { editor.current = value; setDraftState(value); setDirty(touched.current.size > 0) }
+      const edit = (key, value, member) => {
+        if (!mounted.current || !editor.current) return
+        const path = member === undefined ? key : key + ':' + member
+        touched.current.set(path, ++revision.current)
+        replaceDraft({ ...editor.current, [key]: member === undefined ? value : { ...editor.current[key], [member]: value } })
+      }
+      const setFolderPath = value => edit('assignDirectory', value)
+      const setTool = (id, value) => edit('tools', value, id)
+      const setEnv = (key, value) => edit('env', value, key)
+      const accept = (r, mode = 'read', stamp) => {
+        setData(r); latest.current = r; confirmed.current = true; setErr(null)
+        const next = makeDraft(r), previous = editor.current
+        for (const [path, changedAt] of touched.current) {
+          const [key, member] = path.split(':')
+          const submitted = changedAt <= stamp
+          const committed = (mode === 'platformConfigSave' && key !== 'assignDirectory' && submitted)
+            || (mode === 'platformAssignToolkit' && key === 'assignDirectory' && submitted)
+            || (key === 'assignDirectory' && previous[key] === next[key])
+          if (committed) { touched.current.delete(path); continue }
+          if (member === undefined) next[key] = previous[key]
+          else next[key] = { ...next[key], [member]: previous[key]?.[member] }
+        }
+        replaceDraft(next)
+      }
+      const load = () => {
+        if (!mounted.current) return
+        if (writing.current) { refreshAfter.current = true; return }
+        const next = ++generation.current, controller = new AbortController()
+        reader.current?.abort(); reader.current = controller
+        reading.current = true; confirmed.current = false; setBusy(true); setErr(null)
+        const owns = () => mounted.current && generation.current === next
+        api({ op: 'platformConfigGet' }, { signal: controller.signal }).then(r => {
+          if (!owns()) return
+          if (!validConfig(r)) { setErr('当前环境配置读取未确认，请刷新核对。'); return }
+          accept(r)
+        }, () => { if (owns()) setErr('当前环境配置读取未确认，请刷新核对。') })
+          .finally(() => { if (owns()) { reading.current = false; setBusy(false) } })
+      }
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; reader.current?.abort() } }, [])
+      React.useEffect(() => { load() }, [refreshKey])
+      const adopt = () => {
+        if (!mounted.current || writing.current || reading.current || !confirmed.current || !latest.current) return
+        revision.current++; touched.current.clear(); replaceDraft(makeDraft(latest.current))
+      }
+      const mutate = (op, payload) => {
+        if (!mounted.current || writing.current || reading.current || !confirmed.current || !editor.current) return
+        const operation = {}, stamp = revision.current
+        writing.current = operation; generation.current++; reader.current?.abort()
         setBusy(true); setMsg(null)
-        api({ op: 'platformAssignToolkit', dir }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setMsg({ err: (r && r.error) || '自动分配失败' }); return }
-          setData(r)
-          applyDraftFrom(r)
-          setMsg({
-            ok: '已从文件夹分配 ' + (r.assignedCount || 0) + ' 个工具'
-              + (r.nucleiTemplatesDir ? '，并识别 nuclei-templates' : ''),
-          })
-        }, (e) => { setBusy(false); setMsg({ err: String((e && e.message) || e) }) })
+        const settle = r => {
+          if (!mounted.current || writing.current !== operation) return
+          writing.current = null; setBusy(false)
+          if (validConfig(r)) {
+            accept(r, op, stamp)
+            setMsg({ ok: op === 'platformConfigSave' ? '已保存配置；请求期间新增的输入会保留。'
+              : '已从文件夹分配 ' + (r.assignedCount || 0) + ' 个工具；其他未保存输入会保留。' })
+          } else {
+            confirmed.current = false
+            setMsg({ err: '配置修改结果未确认，已只读核对；未重发写入。' })
+          }
+          const recheck = refreshAfter.current || !validConfig(r)
+          refreshAfter.current = false
+          if (recheck) load()
+        }
+        api({ op, ...payload }).then(settle, () => settle(null))
       }
-
-      const setTool = (id, value) => setDraft((d) => d ? Object.assign({}, d, { tools: Object.assign({}, d.tools, { [id]: value }) }) : d)
-      const setEnv = (key, value) => setDraft((d) => d ? Object.assign({}, d, { env: Object.assign({}, d.env, { [key]: value }) }) : d)
+      const save = () => {
+        const d = editor.current
+        if (!d) return
+        mutate('platformConfigSave', { config: {
+          platform: d.platform, toolkitDir: d.toolkitDir, nucleiTemplatesDir: d.nucleiTemplatesDir,
+          binDirs: String(d.binDirsText || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean),
+          tools: d.tools, env: d.env, notes: d.notes, envAdaptConfigured: true, envAdaptSkip: false,
+        } })
+      }
+      const assignFolder = () => {
+        if (!mounted.current || writing.current || reading.current || !confirmed.current) return
+        const dir = String(editor.current?.assignDirectory || editor.current?.toolkitDir || '').trim()
+        if (!dir) { setMsg({ err: '请先填写工具所在文件夹路径' }); return }
+        mutate('platformAssignToolkit', { dir })
+      }
 
       const runtime = (data && data.runtime) || {}
       const adapt = (data && data.adapt) || {}
@@ -2875,9 +2918,11 @@ window.__ModuleLoader__.load({
           h('span', { className: 'rt-tag' + (found ? ' rt-tag-live' : ' rt-tag-warn') }, '工具 ' + found + '/' + tools.length),
           h('div', { className: 'rt-spacer' }),
           h('button', { className: 'rt-btn', disabled: busy, onClick: load }, busy ? '读取中…' : '刷新'),
-          h('button', { className: 'rt-btn rt-btn-primary', disabled: busy || !draft, onClick: save }, '保存')),
+          h('button', { className: 'rt-btn rt-btn-primary', disabled: busy || !draft || !!err, onClick: save }, '保存')),
         h('div', { className: 'rt-pane', style: { minHeight: 0 } },
         err ? h('div', { className: 'rt-err' }, err) : null,
+        dirty ? h('div', { className: 'rt-note', role: 'status' }, '有未保存修改；刷新会保留输入。',
+          h('button', { className: 'rt-btn', disabled: busy || !!err, onClick: adopt }, '使用当前配置')) : null,
         msg ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
         h('div', { className: 'rt-card', style: { margin: '0 0 8px', fontSize: 12, lineHeight: 1.6 } },
           adapt.message
@@ -2895,7 +2940,7 @@ window.__ModuleLoader__.load({
               onKeyDown: (e) => { if (e.key === 'Enter') assignFolder() },
             }),
             h('button', {
-              className: 'rt-btn rt-btn-primary', disabled: busy,
+              className: 'rt-btn rt-btn-primary', disabled: busy || !draft || !!err,
               onClick: assignFolder,
             }, busy ? '扫描中…' : '自动分配'))),
         data && data.hint ? h('div', { className: 'rt-card', style: { margin: '0 0 8px', fontSize: 12, lineHeight: 1.6 } }, data.hint) : null,
@@ -2914,7 +2959,7 @@ window.__ModuleLoader__.load({
                 h('select', {
                   className: 'rt-input', style: { display: 'block', width: '100%', marginTop: 4 },
                   value: draft.platform,
-                  onChange: (e) => setDraft(Object.assign({}, draft, { platform: e.target.value })),
+                  onChange: (e) => edit('platform', e.target.value),
                 },
                   h('option', { value: 'auto' }, 'auto（跟随本机，默认）'),
                   h('option', { value: 'windows' }, 'windows'),
@@ -2924,21 +2969,21 @@ window.__ModuleLoader__.load({
                   className: 'rt-input', style: { display: 'block', width: '100%', marginTop: 4 },
                   placeholder: '默认：' + defaultToolkit,
                   value: draft.toolkitDir,
-                  onChange: (e) => setDraft(Object.assign({}, draft, { toolkitDir: e.target.value })),
+                  onChange: (e) => edit('toolkitDir', e.target.value),
                 })),
               h('label', { style: { fontSize: 12 } }, 'nuclei 模板目录（留空＝自动：toolkit/nuclei-templates）',
                 h('input', {
                   className: 'rt-input', style: { display: 'block', width: '100%', marginTop: 4 },
                   placeholder: '默认：' + defaultNuclei,
                   value: draft.nucleiTemplatesDir,
-                  onChange: (e) => setDraft(Object.assign({}, draft, { nucleiTemplatesDir: e.target.value })),
+                  onChange: (e) => edit('nucleiTemplatesDir', e.target.value),
                 })),
               h('label', { style: { fontSize: 12 } }, '工具搜索目录 binDirs（留空＝只搜 toolkit + PATH；每行一个）',
                 h('textarea', {
                   className: 'rt-input', rows: 4, style: { display: 'block', width: '100%', marginTop: 4, fontFamily: 'var(--dsw-font-mono, monospace)' },
                   placeholder: '可选。例如：' + String.fromCharCode(10) + 'D:\\tools' + String.fromCharCode(10) + 'D:\\pentest-bin',
                   value: draft.binDirsText,
-                  onChange: (e) => setDraft(Object.assign({}, draft, { binDirsText: e.target.value })),
+                  onChange: (e) => edit('binDirsText', e.target.value),
                 })))),
           h('div', { className: 'rt-card' },
             h('h4', null, '密钥与 VPS（留空＝不覆盖；进程环境变量优先）'),
@@ -2974,7 +3019,7 @@ window.__ModuleLoader__.load({
               className: 'rt-input', rows: 3, style: { width: '100%' },
               placeholder: '可选。例如：工具来自某某绿色包',
               value: draft.notes,
-              onChange: (e) => setDraft(Object.assign({}, draft, { notes: e.target.value })),
+              onChange: (e) => edit('notes', e.target.value),
             })),
           h('div', { className: 'rt-foot' },
             h('span', null,
@@ -2984,71 +3029,84 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------------------------------- 得分目标 */
     function ScoreTab(props) {
-      const eng = props.engagement
-      const refreshKey = props.refreshKey || 0
-      const [data, setData] = React.useState(null)
-      const [err, setErr] = React.useState(null)
+      const eng = props.engagement, refreshKey = props.refreshKey || 0
+      const [snapshot, setData] = React.useState(null)
+      const [error, setErr] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
-      const [openId, setOpenId] = React.useState(null)
-      const [form, setForm] = React.useState(null)
-      const [msg, setMsg] = React.useState(null)
-
+      const [opened, setOpened] = React.useState(null)
+      const [editor, setEditor] = React.useState(null)
+      const [message, setMessage] = React.useState(null)
+      const [settled, setSettled] = React.useState(0)
+      const generation = React.useRef(0), reader = React.useRef(null)
+      const mounted = React.useRef(true), writing = React.useRef(new Map())
+      const owner = React.useRef({ eng, refreshKey })
+      if (owner.current.eng !== eng || owner.current.refreshKey !== refreshKey) owner.current = { eng, refreshKey }
+      const view = owner.current
+      const data = snapshot?.view === view && snapshot.token === generation.current ? snapshot : null
+      const token = data?.token
+      const valid = () => mounted.current && owner.current === view && token === generation.current
+      const ready = !!data && !busy
+      const form = data && editor?.view === view && editor.token === token ? editor.point : null
+      const openId = data && opened?.view === view && opened.token === token ? opened.id : null
+      const msg = message?.view === view ? message : null
+      const err = error?.view === view ? error.text : null
+      const setMsg = value => { if (valid()) setMessage(value ? { ...value, view } : null) }
+      const setForm = point => { if (ready && valid() && !writing.current.has(eng)) setEditor(point ? { point, view, token } : null) }
+      const setOpenId = id => { if (ready && valid() && !writing.current.has(eng)) setOpened({ id, view, token }) }
       const load = () => {
-        if (!eng) return
-        setBusy(true)
-        api({ op: 'scores', engagement: eng }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setErr((r && r.error) || '读取失败'); return }
-          setErr(null)
-          setData(r)
-        }, (e) => { setBusy(false); setErr(String((e && e.message) || e)) })
+        if (!eng || !mounted.current || owner.current !== view || writing.current.has(eng)) return
+        const next = ++generation.current, controller = new AbortController()
+        reader.current?.abort(); reader.current = controller
+        setBusy(true); setData(null); setErr(null); setEditor(null); setOpened(null)
+        const owns = () => mounted.current && owner.current === view && generation.current === next
+        api({ op: 'scores', engagement: eng }, { signal: controller.signal }).then(r => {
+          if (!owns()) return
+          if (r?.ok !== true || !Array.isArray(r.items) || !r.summary || !r.items.every(p => p && Number.isSafeInteger(p.id) && p.id > 0 && Array.isArray(p.hits))) {
+            setErr({ view, text: '当前项目得分记录未确认，请刷新核对。' }); return
+          }
+          setData({ ...r, view, token: next })
+        }, () => { if (owns()) setErr({ view, text: '当前项目得分记录未确认，请刷新核对。' }) })
+          .finally(() => { if (owns()) setBusy(false) })
       }
-      React.useEffect(load, [eng, refreshKey])
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; reader.current?.abort() } }, [])
+      React.useEffect(() => {
+        setBusy(writing.current.has(eng)); load()
+        return () => { generation.current++; reader.current?.abort() }
+      }, [eng, refreshKey, settled])
 
-      /* builtin 要一路带到表单：内置得分点的分值/名称/口径由《得分规则》锁定，
-         界面必须把输入框置灰并说明原因 —— 以前是「能改、提示已保存、刷新后变回去」，
-         用户以为是 bug。 */
-      const startEdit = (p) => setForm({
+      React.useEffect(() => { setMessage(null) }, [eng, refreshKey])
+
+      const startEdit = p => setForm({
         id: p.id, name: p.name, category: p.category || '', points: p.points,
         description: p.description || '', enabled: p.enabled, builtin: p.builtin === true,
         src: p.src, cap: p.cap, rule: p.rule,
       })
       const startNew = () => { setForm({ name: '', category: '', points: 10, description: '', enabled: true, builtin: false }); setMsg(null) }
-      const setField = (k, v) => setForm((f) => Object.assign({}, f, { [k]: v }))
-
-      const save = () => {
-        if (!form || !form.name) { setMsg({ err: '名称不能为空' }); return }
-        setBusy(true)
-        setMsg(null)
-        api({ op: 'saveScorePoint', engagement: eng, point: form }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setMsg({ err: (r && r.error) || '保存失败' }); return }
-          /* overridden === false 表示后端**没有采纳**提交的分值（内置点由规则锁定）。
-             这时不能笼统说「已保存」 —— 那句话会让用户以为分值改成功了。 */
-          if (r.overridden === false) {
-            setMsg({ err: '已保存「启用/停用」。分值未改动：这是随《得分规则》分发的内置得分点，'
-              + '分值 / 上限 / 计分口径由规则锁定（同一条规则的上限按组内所有得分点累计，'
-              + '单独改分值会让一条命中吃掉整组上限）。要自定义分值时请「+ 新增得分点」。' })
-          } else {
-            setMsg({ ok: r.note || '已保存' })
-          }
-          setForm(null)
-          load()
-        }, (e) => { setBusy(false); setMsg({ err: String((e && e.message) || e) }) })
+      const setField = (k, v) => { if (form) setForm({ ...form, [k]: v }) }
+      const mutate = remove => {
+        if (!ready || !valid() || writing.current.has(eng) || !form) return
+        if (remove && !form.id) return
+        if (!remove && !form.name) { setMsg({ err: '名称不能为空' }); return }
+        const operation = {}
+        writing.current.set(eng, operation); setBusy(true); setMsg(null)
+        const request = remove ? { op: 'deleteScorePoint', engagement: eng, id: form.id } : { op: 'saveScorePoint', engagement: eng, point: form }
+        const settle = r => {
+          if (writing.current.get(eng) !== operation) return
+          writing.current.delete(eng)
+          if (!mounted.current || owner.current.eng !== eng) return
+          setBusy(false); setEditor(null); setOpened(null)
+          const receipt = r?.ok !== true
+            ? { err: '得分修改结果未确认，已只读刷新；未重发修改。' }
+            : !remove && r.overridden === false
+              ? { err: '已保存「启用/停用」。分值未改动：内置得分点由规则锁定；自定义分值请使用「+ 新增得分点」。' }
+              : { ok: remove ? '已删除' : r.note || '已保存' }
+          setMessage({ ...receipt, view: owner.current })
+          setSettled(value => value + 1)
+        }
+        api(request).then(settle, () => settle(null))
       }
-      const remove = () => {
-        if (!form || !form.id) { setForm(null); return }
-        setBusy(true)
-        setMsg(null)
-        api({ op: 'deleteScorePoint', engagement: eng, id: form.id }).then((r) => {
-          setBusy(false)
-          if (!r || r.ok === false) { setMsg({ err: (r && r.error) || '删除失败' }); return }
-          setMsg({ ok: '已删除' })
-          setForm(null)
-          setOpenId(null)
-          load()
-        }, (e) => { setBusy(false); setMsg({ err: String((e && e.message) || e) }) })
-      }
+      const save = () => mutate(false)
+      const remove = () => mutate(true)
 
       const summary = (data && data.summary) || { achievedPoints: 0, pointCount: 0, hitPointCount: 0, hitCount: 0, selfCreatedHits: 0, serviceCappedHits: 0 }
       const items = (data && data.items) || []
@@ -3159,10 +3217,10 @@ window.__ModuleLoader__.load({
           h('span', { style: { fontWeight: 600 } }, '得分目标'),
           /* 只显示已拿下的总分，不显示目标分数、不显示进度条 */
           h('span', { style: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)', marginLeft: 4 } }, '总分'),
-          h('span', { className: 'rt-total' }, String(summary.achievedPoints)),
+          h('span', { className: 'rt-total' }, data ? String(summary.achievedPoints) : '?'),
           h('span', { style: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } }, '分'),
-          h('span', { className: 'rt-tag' }, summary.pointCount + ' 个得分点'),
-          h('span', { className: 'rt-tag' }, '命中 ' + summary.countedHits + ' 次'),
+          h('span', { className: 'rt-tag' }, data ? summary.pointCount + ' 个得分点' : '得分点待核对'),
+          h('span', { className: 'rt-tag' }, data ? '命中 ' + summary.countedHits + ' 次' : '命中待核对'),
           summary.selfCreatedHits
             ? h('span', {
                 className: 'rt-tag rt-tag-warn',
@@ -3176,8 +3234,9 @@ window.__ModuleLoader__.load({
               }, '服务已拿满不计分 ' + summary.serviceCappedHits)
             : null,
           h('div', { className: 'rt-spacer' }),
-          h('button', { className: 'rt-btn', onClick: startNew }, '+ 新增得分点'),
+          h('button', { className: 'rt-btn', disabled: !ready, onClick: startNew }, '+ 新增得分点'),
           h('button', { className: 'rt-btn', disabled: busy, onClick: load }, busy ? '刷新中…' : '刷新')),
+        !data ? h('div', { className: 'rt-note', role: 'status' }, busy ? '正在核对当前项目得分记录…' : '当前项目得分记录未确认，请刷新核对。') : null,
         msg ? h('div', { className: msg.err ? 'rt-err' : 'rt-foot' }, msg.err || msg.ok) : null,
         err ? h('div', { className: 'rt-err' }, err) : null,
         form ? h('div', { className: 'rt-pane', style: { flex: 'none', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
@@ -3243,7 +3302,7 @@ window.__ModuleLoader__.load({
             h('span', null, ''), h('span', null, '分值'), h('span', null, '得分点（按分值从低到高）'),
             h('span', null, '命中 / 上限'), h('span', { style: { textAlign: 'right' } }, '已得分')),
           rows,
-          !items.length ? h('div', { className: 'rt-empty' }, '暂无得分点，点右上角「新增得分点」') : null))
+          data && !items.length ? h('div', { className: 'rt-empty' }, '暂无得分点，点右上角「新增得分点」') : null))
     }
 
     /* ---------------------------------------------------------- 折叠底座 */
