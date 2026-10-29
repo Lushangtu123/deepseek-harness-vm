@@ -42,9 +42,8 @@ class RecoveryCatalog(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp).resolve();deep=root/'archived-validation/a/b/c/d/e/f/image.qcow2';deep.parent.mkdir(parents=True);deep.write_bytes(b'deep')
    result=self.catalog(root);self.assertTrue(result['truncated']);self.assertEqual(result['images'],[])
-   def unreadable(base,**kwargs):
-    kwargs.get('onerror',lambda error:None)(PermissionError('synthetic unreadable directory'));return iter([])
-   with patch.object(m.os,'walk',side_effect=unreadable):self.assertTrue(self.catalog(root)['truncated'])
+   def unreadable(*args):raise PermissionError('synthetic unreadable directory')
+   with patch.object(m,'archive_directory',side_effect=unreadable):self.assertTrue(self.catalog(root)['truncated'])
  def test_one_malformed_old_archive_does_not_hide_the_remaining_catalog(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp).resolve();old=root/'recoveries'/m.REVIEWED_RECOVERIES[0];old.mkdir(parents=True);(old/'manifest.json').write_text('[]')
@@ -140,4 +139,50 @@ class RecoveryCatalog(unittest.TestCase):
    try:result=self.catalog(root,real_verify=True)
    except ValueError as error:self.fail('Linked recovery escaped row-level validation: '+str(error))
    row=next(row for row in result['snapshots'] if row['name']==m.CURRENT_RECOVERY);self.assertEqual(row['bundleState'],'invalid')
+
+ def test_one_archive_continues_after_image_budget_without_losing_files(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();archive=root/'archived-validation';folder=archive/'one-large-archive';folder.mkdir(parents=True)
+   for i in range(205):(folder/f'image-{i:03d}.qcow2').write_bytes(b'image')
+   after=None;seen=[];cursors=set()
+   for _ in range(8):
+    result=self.catalog(root,after=after);seen.extend(row['id'] for row in result['images']);self.assertFalse(result['truncated']);after=result['nextCursor']
+    if after is None:break
+    self.assertNotIn(after,cursors);cursors.add(after)
+   self.assertEqual(len(seen),205);self.assertEqual(len(set(seen)),205);self.assertEqual(len(cursors),2)
+
+ def test_one_archive_continues_after_directory_budget(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();archive=root/'archived-validation';folder=archive/'one-large-archive'
+   for group in ['a','b']:
+    for i in range(300):(folder/group/f'dir-{i:03d}').mkdir(parents=True)
+    (folder/group/'zz-disk.qcow2').write_bytes(b'image')
+   first=self.catalog(root);self.assertTrue(first['nextCursor'],'An unfinished archive needs an internal cursor');self.assertFalse(first['truncated'])
+   second=self.catalog(root,after=first['nextCursor']);self.assertIsNone(second['nextCursor']);self.assertFalse(second['truncated'])
+   self.assertEqual({row['id'] for page in [first,second] for row in page['images']},{'one-large-archive/a/zz-disk.qcow2','one-large-archive/b/zz-disk.qcow2'})
+
+ def test_resume_cannot_traverse_a_replaced_archive_link(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();folder=root/'archived-validation/one-large-archive';folder.mkdir(parents=True)
+   for i in range(100):(folder/f'image-{i:03d}.qcow2').write_bytes(b'image')
+   first=self.catalog(root);self.assertTrue(first['nextCursor']);folder.rename(folder.with_name('detached'))
+   outside=root/'outside';outside.mkdir();(outside/'private.qcow2').write_bytes(b'private');folder.symlink_to(outside,target_is_directory=True)
+   result=self.catalog(root,after=first['nextCursor']);self.assertNotIn('private.qcow2',json.dumps(result))
+
+ def test_time_budget_within_one_archive_retains_an_internal_resume_position(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();folder=root/'archived-validation/large';folder.mkdir(parents=True)
+   for name in ['a','b']:
+    (folder/name).mkdir();(folder/name/'disk.qcow2').write_bytes(b'image')
+   with patch.object(m.time,'monotonic',side_effect=[0,1,3]):first=self.catalog(root)
+   self.assertTrue(first['nextCursor']);self.assertIn('time-limit',first['archiveScan']['continuationReasons']);self.assertFalse(first['truncated'])
+   second=self.catalog(root,after=first['nextCursor']);self.assertIsNone(second['nextCursor'])
+   rows=[row['id'] for page in [first,second] for row in page['images']];self.assertEqual(len(rows),2);self.assertEqual(len(set(rows)),2)
+
+ def test_internal_cursor_frames_are_bounded_public_descendants(self):
+  import base64
+  with tempfile.TemporaryDirectory() as temp:
+   for payload in [['a',[['../outside','']]],['a',[['a','b'],['a/c','']]],['a',[['a','token-name']]],['a',[]],['a',[['a','b']]*6]]:
+    raw=base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+    with self.subTest(payload=payload),self.assertRaises(ValueError):self.catalog(Path(temp).resolve(),after='v1:'+raw)
 if __name__=='__main__':unittest.main()

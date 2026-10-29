@@ -64,3 +64,11 @@ test('Snapshot HTTP continuation preserves the fixed-origin and local-header bou
   const r=await fetch(base+'/__harness/recoveries?snapshotAfter=snap-a',{headers:{'x-harness-local':'1'}});assert.equal(r.status,200);await r.text();assert.deepEqual(calls,[['','snap-a']]);
  }finally{server.closeAllConnections();await new Promise(done=>server.close(done))}
 });
+
+test('Internal archive continuation passes as one bounded argument and keeps snapshot cursors separate',async()=>{
+ const cursor='v1:'+Buffer.from(JSON.stringify(['large',[['large','image-079.qcow2']]])).toString('base64url');const calls=[];
+ const read=entry.createRecoveryReader({run:async after=>{calls.push(after);return{stdout:JSON.stringify({...catalog,nextCursor:after?null:cursor})}}});
+ assert.equal((await read()).nextCursor,cursor);assert.equal((await read(cursor)).nextCursor,null);assert.deepEqual(calls,['',cursor]);
+ await assert.rejects(()=>read('',cursor));
+ for(const invalid of ['v1:../outside','v1:'+'a'.repeat(4096)])await assert.rejects(()=>read(invalid));
+});

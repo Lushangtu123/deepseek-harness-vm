@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """On-demand controller for one dedicated VM. Never opens or drives a browser."""
-import argparse,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading
+import argparse,base64,binascii,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading
 from contextlib import contextmanager
 from pathlib import Path
 ROOT=Path.home()/'Library/Application Support/Harness Purge Original'
@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-recovery-guard-20261029'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-recovery-resume-20261029'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_CONFIG_FILES={'.config/harness-original-capabilities','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
@@ -287,7 +287,10 @@ def stop():
  print('专用虚拟机已正常关闭，出网代理已停止。')
 
 def image_command(args,timeout=30,helper=None):
- return command([PYTHON,str(helper or TOOLS/'qemu-image.py'),*args],timeout=timeout,env={**os.environ,'DYLD_FRAMEWORK_PATH':'/Applications/UTM.app/Contents/Frameworks'})
+ # Archived helpers execute the bytes whose digest was checked, never a path
+ # that can be replaced between verification and process startup.
+ pinned=isinstance(helper,bytes)
+ return command([PYTHON,'-' if pinned else str(helper or TOOLS/'qemu-image.py'),*args],timeout=timeout,env={**os.environ,'DYLD_FRAMEWORK_PATH':'/Applications/UTM.app/Contents/Frameworks'},**({'input':helper.decode('utf-8')} if pinned else {}))
 
 def recovery_path(snapshot):
  if snapshot not in REVIEWED_RECOVERIES:raise ValueError('Unreviewed current recovery name')
@@ -332,13 +335,80 @@ def file_sha(path,limit=RECOVERY_FILE_LIMIT):
    digest.update(chunk)
  return digest.hexdigest()
 
+def checked_recovery_source(path,digest,limit=RECOVERY_FILE_LIMIT):
+ with recovery_source(path,limit) as source:
+  mode=os.fstat(source.fileno()).st_mode&0o777
+  raw=source.read(limit+1)
+ if len(raw)>limit or not isinstance(digest,str) or hashlib.sha256(raw).hexdigest()!=digest:raise ValueError('Recovery source checksum mismatch')
+ return raw,mode
+
+def prepare_host_bundle(folder,data):
+ """Freeze every source before the first write, also for rollback bundles."""
+ prepared={}
+ for section,subdir,allowed in [('helpers','host-tools',RECOVERY_HELPERS),('launchAgents','launch-agents',{f'{LABEL}.plist',f'{WEB_LABEL}.plist'})]:
+  entries=data[section]
+  missing=data.get('missingHelpers' if section=='helpers' else 'missingLaunchAgents',[])
+  if not isinstance(entries,dict) or not set(entries)<=allowed or not isinstance(missing,list) or any(name not in allowed for name in missing) or set(entries)&set(missing):raise ValueError('Invalid recovery source inventory')
+  prepared[section]={name:checked_recovery_source(folder/subdir/name,digest) for name,digest in entries.items()}
+ return prepared
+
+def public_archive_name(name):
+ return isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}',name) and not any(part in ('','.','..') or part.startswith('.') or re.search(r'credential|secret|token|provider',part,re.I) for part in name.split('/'))
+
+def archive_cursor(after):
+ if after is None:return None,None
+ if isinstance(after,str) and after.startswith('v1:'):
+  try:
+   if len(after)>4096 or not re.fullmatch(r'v1:[A-Za-z0-9_-]+',after):raise ValueError()
+   raw=after[3:];value=json.loads(base64.b64decode(raw+'='*(-len(raw)%4),altchars=b'-_',validate=True))
+   if not isinstance(value,list) or len(value)!=2:raise ValueError()
+   entry,stack=value
+   if not public_archive_name(entry) or '/' in entry or not isinstance(stack,list) or not 1<=len(stack)<=5:raise ValueError()
+   previous=None
+   for frame in stack:
+    if not isinstance(frame,list) or len(frame)!=2:raise ValueError()
+    relative,last=frame
+    if not public_archive_name(relative) or len(relative.split('/'))>5 or not isinstance(last,str) or last and (not public_archive_name(last) or '/' in last):raise ValueError()
+    if previous is None:
+     if relative!=entry:raise ValueError()
+    elif relative!=previous[0]+'/'+previous[1]:raise ValueError()
+    previous=frame
+   return entry,stack
+  except (ValueError,TypeError,binascii.Error):raise ValueError('Invalid recovery cursor') from None
+ if not public_archive_name(after) or len(after)>240 or '/' in after:raise ValueError('Invalid recovery cursor')
+ return after,None
+
+def internal_archive_cursor(entry,stack):
+ raw=json.dumps([entry,[[frame['path'],frame['after']] for frame in stack]],separators=(',',':')).encode()
+ return 'v1:'+base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+def archive_directory(relative):
+ """Read at most 512 entries through pinned directory descriptors."""
+ flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC;opened=[]
+ try:
+  fd=os.open(ROOT,flags);opened.append(fd)
+  for part in ['archived-validation',*relative.split('/')]:
+   fd=os.open(part,flags,dir_fd=fd);opened.append(fd)
+  rows=[];limited=False
+  with os.scandir(fd) as listing:
+   for index,entry in enumerate(listing):
+    if index>=512:limited=True;break
+    key=relative+'/'+entry.name
+    if not public_archive_name(key):continue
+    info=entry.stat(follow_symlinks=False)
+    if stat.S_ISDIR(info.st_mode):rows.append((entry.name,True,None,None))
+    elif stat.S_ISREG(info.st_mode) and entry.name.endswith('.qcow2'):rows.append((entry.name,False,info.st_size,info.st_blocks*512))
+  return sorted(rows),limited
+ finally:
+  for fd in reversed(opened):os.close(fd)
+
 def recovery_catalog(after=None,snapshot_after=None):
  """Bounded public metadata only. No SSH, recovery, removal, or VM state changes."""
  validate()
  protected={'ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES[-3:]}
- safe=lambda name:isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}',name) and not any(part in ('','.','..') or part.startswith('.') or re.search(r'credential|secret|token|provider',part,re.I) for part in name.split('/'))
- for cursor in [after,snapshot_after]:
-  if cursor is not None and (not safe(cursor) or len(cursor)>240 or '/' in cursor):raise ValueError('Invalid recovery cursor')
+ safe=public_archive_name
+ after_entry,resume_stack=archive_cursor(after)
+ if snapshot_after is not None and (not safe(snapshot_after) or len(snapshot_after)>240 or '/' in snapshot_after):raise ValueError('Invalid recovery cursor')
  snapshot_state='observed';snapshots=[];snapshot_name_limit=False
  try:
   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5).stdout)
@@ -361,17 +431,9 @@ def recovery_catalog(after=None,snapshot_after=None):
    except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):bundle_state='invalid'
   present=name in actual if snapshot_state=='observed' else None
   snapshots.append({'name':name,'present':present,'current':name==CURRENT_RECOVERY,'protected':name in protected,'reviewCandidate':present is True and name not in protected,'bundleState':bundle_state,'createdAt':created})
- images=[];base=ROOT/'archived-validation';visited=0;skipped=0;scanned=0;reasons=set();next_cursor=None
+ images=[];base=ROOT/'archived-validation';visited=0;skipped=0;scanned=0;reasons=set();continuation=set();next_cursor=None
  if snapshot_name_limit:reasons.add('snapshot-name-limit')
  deadline=time.monotonic()+2
- def scan_error(_error):reasons.add('read-error')
- def add_image(path):
-  key=str(path.relative_to(base))
-  if path.is_symlink() or path.resolve()!=path or not safe(key):return
-  if len(images)>=80:reasons.add('image-limit');return
-  try:info=path.stat()
-  except OSError:reasons.add('read-error');return
-  if stat.S_ISREG(info.st_mode):images.append({'id':key,'logicalBytes':info.st_size,'allocatedBytes':info.st_blocks*512,'reviewCandidate':True})
  entries=[];remaining=[]
  if base.is_dir() and not base.is_symlink() and base.resolve()==base:
   try:
@@ -380,33 +442,45 @@ def recovery_catalog(after=None,snapshot_after=None):
      if index>=512:reasons.add('entry-limit');break
      if not entry.is_symlink() and len(entry.name)<=240 and safe(entry.name) and (entry.is_dir(follow_symlinks=False) or entry.name.endswith('.qcow2')):entries.append(entry.name)
   except OSError:reasons.add('read-error')
-  remaining=sorted(name for name in entries if after is None or name>after)
+  remaining=sorted(name for name in entries if after_entry is None or name>after_entry or resume_stack is not None and name==after_entry)
+  if resume_stack and after_entry not in entries:reasons.add('read-error')
   for name in remaining[:16]:
-   # A fresh archive belongs to the next page when this page has no budget.
-   # Never advance past an archive whose traversal did not start.
    if scanned and (visited>=512 or len(images)>=80 or time.monotonic()>=deadline):break
    path=base/name;scanned+=1
-   if path.is_file():add_image(path)
-   else:
-    for directory,dirs,files in os.walk(path,followlinks=False,onerror=scan_error):
-     parent=Path(directory)
-     if visited>=512:reasons.add('directory-limit');break
-     if time.monotonic()>=deadline:reasons.add('time-limit');break
+   if path.is_file():
+    try:
+     with recovery_source(path,2**63-1) as source:info=os.fstat(source.fileno())
+     images.append({'id':name,'logicalBytes':info.st_size,'allocatedBytes':info.st_blocks*512,'reviewCandidate':True})
+    except (OSError,ValueError):reasons.add('read-error')
+    continue
+   stack=[{'path':relative,'after':last} for relative,last in resume_stack] if resume_stack and name==after_entry else [{'path':name,'after':''}]
+   while stack:
+    frame=stack[-1]
+    if 'rows' not in frame:
+     if visited>=512 or visited and time.monotonic()>=deadline:
+      continuation.add('directory-limit' if visited>=512 else 'time-limit');break
      visited+=1
-     # These are metadata siblings of the image, never an image inventory.
-     metadata={'host-tools','launch-agents','__pycache__'} if parent==path else set()
-     skipped+=sum(child in metadata for child in dirs)
-     dirs[:]=sorted(child for child in dirs if child not in metadata and not (parent/child).is_symlink() and safe(str((parent/child).relative_to(base))))
-     if len(parent.relative_to(base).parts)>=5:
-      if dirs:reasons.add('depth-limit')
-      dirs[:]=[]
-     for child in sorted(files):
-      if child.endswith('.qcow2'):add_image(parent/child)
-   if 'directory-limit' in reasons or 'time-limit' in reasons:break
-  if scanned<len(remaining) and scanned:next_cursor=remaining[scanned-1]
+     try:
+      rows,limited=archive_directory(frame['path'])
+      if limited:reasons.add('directory-entry-limit')
+     except OSError:reasons.add('read-error');stack.pop();continue
+     metadata={'host-tools','launch-agents','__pycache__'} if frame['path']==name else set()
+     skipped+=sum(child in metadata and directory for child,directory,*_ in rows)
+     frame['rows']=[row for row in rows if row[0]>frame['after'] and not (row[1] and row[0] in metadata)];frame['index']=0
+    if frame['index']>=len(frame['rows']):stack.pop();continue
+    if len(images)>=80:continuation.add('image-limit');break
+    child,directory,logical,allocated=frame['rows'][frame['index']];frame['index']+=1;frame['after']=child
+    relative=frame['path']+'/'+child
+    if directory:
+     if len(relative.split('/'))>5:reasons.add('depth-limit')
+     else:stack.append({'path':relative,'after':''})
+    else:images.append({'id':relative,'logicalBytes':logical,'allocatedBytes':allocated,'reviewCandidate':True})
+   if stack:
+    next_cursor=internal_archive_cursor(name,stack);break
+  if next_cursor is None and scanned<len(remaining) and scanned:next_cursor=remaining[scanned-1]
  elif base.exists():reasons.add('invalid-root')
  space=shutil.disk_usage(ROOT);disk=(VM/'Data/ubuntu.qcow2').stat()
- scan={'entriesScanned':scanned,'entriesRemaining':max(0,len(remaining)-scanned),'visitedDirectories':visited,'skippedMetadataDirectories':skipped,'reasons':sorted(reasons)}
+ scan={'entriesScanned':scanned,'entriesRemaining':max(0,len(remaining)-scanned),'visitedDirectories':visited,'skippedMetadataDirectories':skipped,'reasons':sorted(reasons),'continuationReasons':sorted(continuation)}
  return {'nextSnapshotCursor':next_snapshot_cursor,'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':bool(reasons),'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
 
 def verify_recovery_bundle(snapshot):
@@ -472,14 +546,15 @@ def deployment_status():
   try:
    if not recovery_path(name).exists():continue
    folder,bundle=verify_recovery_bundle(name)
-   proof=recovery_json(folder/'guest-proof.json')
+   proof=json.loads(checked_recovery_source(folder/'guest-proof.json',bundle['guestProofSha256'],RECOVERY_JSON_LIMIT)[0])
+   helper=checked_recovery_source(folder/'host-tools/qemu-image.py',bundle['helpers']['qemu-image.py'])[0]
    inventory=recovery_inventory(proof);expected=inventory['expected']
    if not inventory['groups']['program']:raise ValueError('Missing program coverage')
    launches=current_launch_inventory();archived=bundle.get('launchAgents',{});helpers=current_host_inventory(verify=False)
    helper_changes=['host-tools/'+name for name in sorted(RECOVERY_HELPERS) if not helpers.get(name) or helpers[name]!=bundle['helpers'].get(name)]
    launch_changes=['host-launch-agents/'+key for key in launches if not launches[key] or launches[key]!=archived.get(key)]
    recovery={'state':'pending','name':name,'createdAt':bundle['createdAt'],'scope':'improved-program-tools-config','helpersMatch':not helper_changes,'launchAgentsMatch':not launch_changes,'uncoveredFiles':inventory['uncovered']}
-   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5,helper=folder/'host-tools/qemu-image.py').stdout)
+   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5,helper=helper).stdout)
    if not isinstance(metadata,dict) or not isinstance(metadata.get('snapshots',[]),list):raise ValueError('Invalid disk snapshot metadata')
    snapshots=metadata.get('snapshots',[])
    if any(not isinstance(row,dict) or not isinstance(row.get('name'),str) for row in snapshots):raise ValueError('Invalid disk snapshot record')
@@ -590,12 +665,12 @@ def atomic_recovery_write(path,data,mode=0o600):
   os.replace(temporary,path)
  finally:temporary.unlink(missing_ok=True)
 
-def apply_host_bundle(folder,data):
- for name in data['helpers']:
-  source=folder/'host-tools'/name
-  atomic_recovery_write(TOOLS/name,source.read_bytes(),source.stat().st_mode&0o777)
- for name in data['launchAgents']:
-  atomic_recovery_write(Path.home()/'Library/LaunchAgents'/name,(folder/'launch-agents'/name).read_bytes())
+def apply_host_bundle(folder,data,prepared=None):
+ prepared=prepare_host_bundle(folder,data) if prepared is None else prepared
+ for name,(raw,mode) in prepared['helpers'].items():
+  atomic_recovery_write(TOOLS/name,raw,mode)
+ for name,(raw,_mode) in prepared['launchAgents'].items():
+  atomic_recovery_write(Path.home()/'Library/LaunchAgents'/name,raw)
  for name in data.get('missingHelpers',[]):
   if name not in RECOVERY_HELPERS:raise ValueError('Unexpected missing helper')
   (TOOLS/name).unlink(missing_ok=True)
@@ -637,18 +712,20 @@ def create_current_recovery():
 @vm_mutation('restore')
 def restore_current_recovery(snapshot):
  folder,data=verify_recovery_bundle(snapshot)
- helper=folder/'host-tools/qemu-image.py'
+ prepared=prepare_host_bundle(folder,data)
+ helper=prepared['helpers']['qemu-image.py'][0]
  image=str(VM/'Data/ubuntu.qcow2')
  info=json.loads(image_command(['info','--output=json',image],helper=helper).stdout)
  if not any(row.get('name')==snapshot for row in info.get('snapshots',[])):raise ValueError('Current recovery disk snapshot is missing')
  safety='pre-restore-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+str(os.getpid())
  backup=ROOT/'recoveries'/safety;backup.mkdir(mode=0o700)
  previous=copy_host_bundle(backup,verify_current=False)
+ previous_sources=prepare_host_bundle(backup,previous)
  atomic_recovery_write(backup/'host-manifest.json',(json.dumps(previous,indent=2)+'\n').encode())
  image_command(['snapshot','-c',safety,image],timeout=90,helper=helper)
  try:
   image_command(['snapshot','-a',snapshot,image],timeout=90,helper=helper)
-  apply_host_bundle(folder,data)
+  apply_host_bundle(folder,data,prepared)
   image_command(['check',image],timeout=90,helper=helper)
  except BaseException as original:
   errors=[]
@@ -656,7 +733,7 @@ def restore_current_recovery(snapshot):
    image_command(['snapshot','-a',safety,image],timeout=90,helper=helper)
    image_command(['check',image],timeout=90,helper=helper)
   except BaseException as error:errors.append('disk: '+type(error).__name__)
-  try:apply_host_bundle(backup,previous)
+  try:apply_host_bundle(backup,previous,previous_sources)
   except BaseException as error:errors.append('host helpers: '+type(error).__name__)
   if errors:raise RuntimeError('Rollback needs attention ('+', '.join(errors)+'); safety snapshot: '+safety) from original
   raise

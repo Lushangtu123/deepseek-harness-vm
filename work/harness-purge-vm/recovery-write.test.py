@@ -35,7 +35,7 @@ class RecoveryWrite(unittest.TestCase):
    self.assertEqual(target.read_bytes(),b'unchanged')
 
  def test_disk_rollback_failure_still_attempts_host_rollback_and_reports_both(self):
-  with tempfile.TemporaryDirectory() as temp,patch.object(m,'ROOT',Path(temp)),patch.object(m,'verify_recovery_bundle',return_value=(Path('/synthetic/bundle'),{'helpers':{}})),patch.object(m,'copy_host_bundle',return_value={'helpers':{}}),patch.object(m,'image_command') as image,patch.object(m,'apply_host_bundle',side_effect=[RuntimeError('first host failure'),None]) as apply:
+  with tempfile.TemporaryDirectory() as temp,patch.object(m,'ROOT',Path(temp)),patch.object(m,'verify_recovery_bundle',return_value=(Path('/synthetic/bundle'),{'helpers':{}})),patch.object(m,'prepare_host_bundle',return_value={'helpers':{'qemu-image.py':(b'checked helper',0o600)}}),patch.object(m,'copy_host_bundle',return_value={'helpers':{}}),patch.object(m,'image_command') as image,patch.object(m,'apply_host_bundle',side_effect=[RuntimeError('first host failure'),None]) as apply:
    (Path(temp)/'recoveries').mkdir()
    calls=0
    def disk(args,**kwargs):

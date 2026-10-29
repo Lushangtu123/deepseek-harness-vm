@@ -63,10 +63,17 @@ export const RECOVERY_HTML = `<!doctype html><html lang="zh-CN"><meta charset="u
 <section><h2>磁盘快照与恢复归档</h2><p class="note">归档摘要匹配仅表示归档文件校验通过；实际恢复与启动结果以各轮验收记录为准。</p><div class="scroll"><table><thead><tr><th>名称</th><th>磁盘 / 归档</th><th>保留建议</th><th>建立时间</th></tr></thead><tbody id="snapshots"></tbody></table></div><button id="more-snapshots" hidden>加载更多快照</button></section>
 <section><h2>离线验收镜像</h2><p class="note">逻辑大小与分配块大小可能包含 APFS 共享数据，不能相加作为删除后可释放容量；本页不估算可回收空间。</p><div class="scroll"><table><thead><tr><th>归档内位置</th><th>逻辑大小</th><th>分配块大小</th><th>建议</th></tr></thead><tbody id="images"></tbody></table></div><button id="more" hidden>加载下一批</button><p class="note">按归档逐批读取，跳过辅助代码目录；目录变化后请刷新清单重新核对。</p></section></main>
 <script>
-const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more','more-snapshots'].map(id=>[id,document.getElementById(id)]));let generation=0,active,nextCursor=null,nextSnapshotCursor=null,loadedRecovery=null;const images=new Map(),snapshots=new Map(),limits=new Set();let entriesScanned=0;
+const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more','more-snapshots'].map(id=>[id,document.getElementById(id)]));let generation=0,active,nextCursor=null,nextSnapshotCursor=null,loadedRecovery=null;const images=new Map(),snapshots=new Map(),limits=new Set();let entriesScanned=0;const listState={snapshots:{at:null,failed:false,state:'unavailable'},images:{at:null,failed:false}};const snapshotLimits=new Set();
 const size=value=>Number.isSafeInteger(value)&&value>=0?(value/1073741824).toFixed(2)+' GiB':'未确认';
 const make=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el};
 const row=(target,values)=>{const tr=document.createElement('tr');for(const value of values)tr.appendChild(make('td',value));target.appendChild(tr)};
+const stamp=value=>value?new Date(value).toLocaleString('zh-CN'):'时间未确认';
+function renderStatus(){
+ const labels={'snapshot-limit':'快照条数上限','snapshot-name-limit':'部分快照名称超出公开长度限制','entry-limit':'归档条目上限','directory-entry-limit':'部分目录条目超出读取上限','depth-limit':'目录深度上限','read-error':'部分目录不可读','invalid-root':'归档目录不可读','unknown-limit':'部分结果未读取'};
+ const gaps=[...snapshotLimits,...limits];
+ nodes.error.textContent=[listState.snapshots.failed?'快照读取失败，保留上次结果，请重试。':'',listState.images.failed?'归档读取失败，保留上次结果，请重试。':''].filter(Boolean).join(' ');
+ nodes.status.textContent='快照核对：'+stamp(listState.snapshots.at)+' · 归档核对：'+stamp(listState.images.at)+' · 读取时的恢复入口：'+(loadedRecovery||'未确认')+' · 已显示 '+snapshots.size+' 项磁盘快照'+(nextSnapshotCursor?'，可加载更多快照':'，本轮快照批次已读取完')+' · 归档条目读取 '+entriesScanned+' 次'+(nextCursor?' · 可加载下一批，继续读取未完成的归档。':' · 本轮归档批次已读取完。')+(gaps.length?' · 清单仍有缺口：'+gaps.map(reason=>labels[reason]||labels['unknown-limit']).join('、')+'。':'')+(listState.snapshots.state==='unavailable'?' · 磁盘快照元数据暂不可读，不能据此判断快照不存在。':'');
+}
 async function refresh(kind='refresh'){
  const append=kind!=='refresh';
  if(kind==='images'&&!nextCursor||kind==='snapshots'&&!nextSnapshotCursor)return;
@@ -80,24 +87,23 @@ async function refresh(kind='refresh'){
   const data=await Promise.race([fetch('/__harness/recoveries'+(query.size?'?'+query:''),{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal}).then(async response=>{if(!response.ok)throw Error('清单暂不可用，请确认本机入口和磁盘可读取后重试。');return response.json()}),aborted]);
   if(current!==generation)return;
   if(append&&loadedRecovery!==data.currentRecovery)throw Error('恢复入口已变化，请刷新清单重新读取。');
-  if(!append){images.clear();snapshots.clear();limits.clear();entriesScanned=0;}
+  if(!append){images.clear();snapshots.clear();limits.clear();snapshotLimits.clear();entriesScanned=0;listState.snapshots.failed=listState.images.failed=false;}
   loadedRecovery=data.currentRecovery;
   if(kind!=='snapshots'){
    nextCursor=data.nextCursor??null;for(const item of data.images)images.set(item.id,item);
-   const reasons=data.archiveScan?.reasons??[];for(const reason of reasons)limits.add(reason);if(data.truncated&&!reasons.length)limits.add('unknown-limit');
+   const reasons=data.archiveScan?.reasons??[];for(const reason of reasons)if(!reason.startsWith('snapshot-')&&!['directory-limit','image-limit','time-limit'].includes(reason))limits.add(reason);if(data.truncated&&!reasons.length)limits.add('unknown-limit');
+   listState.images.at=data.observedAt;listState.images.failed=false;nodes.free.textContent=size(data.storage?.freeBytes);
    entriesScanned+=data.archiveScan?.entriesScanned??0;
   }
-  if(kind!=='images'){nextSnapshotCursor=data.nextSnapshotCursor??null;for(const item of data.snapshots)snapshots.set(item.name,item);}
-  nodes.free.textContent=size(data.storage?.freeBytes);nodes['snap-count'].textContent=data.snapshotState==='observed'?String([...snapshots.values()].filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=String(images.size);
+  if(kind!=='images'){nextSnapshotCursor=data.nextSnapshotCursor??null;for(const item of data.snapshots)snapshots.set(item.name,item);listState.snapshots.at=data.observedAt;listState.snapshots.failed=false;listState.snapshots.state=data.snapshotState==='unavailable'||[...snapshots.values()].some(item=>item.present===null)?'unavailable':'observed';for(const reason of data.archiveScan?.reasons??[])if(reason.startsWith('snapshot-'))snapshotLimits.add(reason);}
+  nodes['snap-count'].textContent=listState.snapshots.state==='observed'?String([...snapshots.values()].filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=String(images.size);
   nodes.snapshots.replaceChildren();nodes.images.replaceChildren();
   const bundle={verified:'归档摘要匹配',missing:'未建立归档',invalid:'归档校验失败','not-reviewed':'非改进版归档'};
   for(const item of snapshots.values())row(nodes.snapshots,[item.name+(item.current?' · 读取时的恢复入口':''),(item.present===true?'快照已存在':item.present===false?'快照未建立':'快照未确认')+' / '+(bundle[item.bundleState]||'归档未确认'),item.protected?'建议保留':item.reviewCandidate?'人工复核候选':'待核对',item.createdAt?new Date(item.createdAt).toLocaleString('zh-CN'):'无归档时间']);
   for(const item of images.values())row(nodes.images,[item.id,size(item.logicalBytes),size(item.allocatedBytes),'人工复核候选']);
   if(!images.size)row(nodes.images,['本次扫描范围内没有可显示镜像','','','']);
-  const labels={'snapshot-limit':'快照条数上限','snapshot-name-limit':'部分快照名称超出公开长度限制','entry-limit':'归档条目上限','directory-limit':'目录扫描上限','image-limit':'单批镜像条数上限','depth-limit':'目录深度上限','time-limit':'本次扫描时间上限','read-error':'部分目录不可读','invalid-root':'归档目录不可读','unknown-limit':'部分结果未读取'};
-  nodes.more.hidden=!nextCursor;nodes['more-snapshots'].hidden=!nextSnapshotCursor;
-  nodes.status.textContent='清单核对：'+(data.observedAt?new Date(data.observedAt).toLocaleString('zh-CN'):'时间未确认')+' · 读取时的恢复入口：'+data.currentRecovery+' · 已显示 '+snapshots.size+' 项磁盘快照'+(nextSnapshotCursor?'，可加载更多快照':'，本轮快照批次已读取完')+' · 已读取 '+entriesScanned+' 个归档条目'+(nextCursor?' · 还有 '+(data.archiveScan?.entriesRemaining??'若干')+' 个条目，可加载下一批。':' · 本轮归档批次已读取完。')+(limits.size?' · 清单仍有缺口：'+[...limits].map(reason=>labels[reason]||labels['unknown-limit']).join('、')+'。':'')+(data.snapshotState==='unavailable'?' · 磁盘快照元数据暂不可读，不能据此判断快照不存在。':'');
- }catch(error){if(current===generation){nodes.error.textContent=error.message;nodes.status.textContent='本次读取失败；下方若有旧清单，仅供历史参考。'}}
+  nodes.more.hidden=!nextCursor;nodes['more-snapshots'].hidden=!nextSnapshotCursor;renderStatus();
+ }catch(error){if(current===generation){if(kind!=='images')listState.snapshots.failed=true;if(kind!=='snapshots')listState.images.failed=true;renderStatus();}}
  finally{clearTimeout(timer);if(current===generation){nodes.refresh.disabled=nodes.more.disabled=nodes['more-snapshots'].disabled=false;active=undefined}}
 }
 nodes.refresh.addEventListener('click',()=>refresh());nodes.more.addEventListener('click',()=>refresh('images'));nodes['more-snapshots'].addEventListener('click',()=>refresh('snapshots'));refresh();

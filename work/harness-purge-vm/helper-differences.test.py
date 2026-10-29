@@ -15,11 +15,11 @@ class Helpers(unittest.TestCase):
     files={'tools/dsh-purge-personal-1.1.77-personal.1/client.js':'hash',**{name:'hash' for name in m.RECOVERY_TOOL_FILES|m.RECOVERY_CONFIG_FILES|m.RECOVERY_RUNTIME_FILES|{m.RECOVERY_PLUGIN_ROOT+n+'/package.json' for n in m.RECOVERY_PLUGINS}}}
     folder=root/'recoveries'/m.CURRENT_RECOVERY;folder.mkdir(parents=True);(folder/'guest-proof.json').write_text(json.dumps({'files':files}))
     launches={m.LABEL+'.plist':'hash',m.WEB_LABEL+'.plist':'hash'}
-    with patch.object(m,'ROOT',root),patch.object(m,'TOOLS',tools),patch.object(m,'validate'),patch.object(m,'verify_recovery_bundle',return_value=(folder,{'helpers':expected,'launchAgents':launches,'createdAt':'2026-10-26T00:00:00Z'})),patch.object(m,'current_launch_inventory',return_value=launches),patch.object(m,'image_command',return_value=MagicMock(stdout=json.dumps({'snapshots':[{'name':m.CURRENT_RECOVERY}]}))) as image,patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps({'mode':'improved','configDir':'/home/purge/.dsh-improved','modeFile':'improved','differentFiles':[],'filesChecked':len(files)}))):
+    with patch.object(m,'ROOT',root),patch.object(m,'TOOLS',tools),patch.object(m,'validate'),patch.object(m,'checked_recovery_source',side_effect=lambda path,*args:(path.read_bytes() if path.name=='guest-proof.json' else b'original',0o600)),patch.object(m,'verify_recovery_bundle',return_value=(folder,{'helpers':expected,'launchAgents':launches,'guestProofSha256':'a'*64,'createdAt':'2026-10-26T00:00:00Z'})),patch.object(m,'current_launch_inventory',return_value=launches),patch.object(m,'image_command',return_value=MagicMock(stdout=json.dumps({'snapshots':[{'name':m.CURRENT_RECOVERY}]}))) as image,patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps({'mode':'improved','configDir':'/home/purge/.dsh-improved','modeFile':'improved','differentFiles':[],'filesChecked':len(files)}))):
      recovery=m.deployment_status()['recovery'];changed=variant!='matches'
      self.assertEqual(recovery['state'],'older' if changed else 'matches')
      self.assertEqual(recovery['helpersMatch'],not changed)
      self.assertEqual(recovery['groups']['tools']['differentFiles'],['host-tools/web-health.mjs'] if changed else [])
      self.assertEqual(recovery['groups']['tools']['filesChecked'],10)
-     self.assertEqual(image.call_args.kwargs.get('helper'),folder/'host-tools/qemu-image.py')
+     self.assertEqual(image.call_args.kwargs.get('helper'),b'original')
 if __name__=='__main__':unittest.main()

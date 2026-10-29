@@ -39,3 +39,27 @@ test('A failed snapshot continuation preserves rows and retries the same cursor'
  assert.equal(typeof f.nodes['more-snapshots'].events.click,'function');await f.nodes['more-snapshots'].events.click();await f.settle();assert.equal(f.nodes.snapshots.children.length,1);assert.equal(f.nodes['more-snapshots'].disabled,false);
  await f.nodes['more-snapshots'].events.click();await f.settle();assert.equal(f.urls[1],f.urls[2]);assert.equal(f.nodes.snapshots.children.length,2);
 });
+
+test('Archive pages cannot turn unknown snapshot rows into a confirmed zero',async()=>{
+ const first={...page('a.qcow2','archive-a'),snapshotState:'unavailable',snapshots:[{name:'current',present:null}]};
+ const f=fixture([first,{...page('b.qcow2'),observedAt:'2026-10-29T06:30:00Z'}]);await f.settle();
+ await f.nodes.more.events.click();await f.settle();
+ assert.equal(f.nodes['snap-count'].textContent,'未确认');assert.match(f.nodes.status.textContent,/快照元数据暂不可读/);
+ assert.match(f.nodes.status.textContent,/快照核对/);assert.match(f.nodes.status.textContent,/归档核对/);
+});
+
+test('A successful archive request retains the snapshot continuation failure',async()=>{
+ const first={...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a',snapshots:[{name:'current',present:true}]};
+ const f=fixture([first,Error('synthetic snapshot failure'),page('b.qcow2')]);await f.settle();
+ await f.nodes['more-snapshots'].events.click();await f.settle();
+ await f.nodes.more.events.click();await f.settle();
+ assert.match(f.nodes.error.textContent,/快照.*失败/);assert.equal(f.nodes['snap-count'].textContent,'1');
+});
+
+test('Snapshot pagination keeps archive failure status and archive observation time',async()=>{
+ const first={...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a',snapshots:[{name:'current',present:true}]};
+ const f=fixture([first,Error('synthetic archive failure'),{...page('a.qcow2'),observedAt:'2026-10-29T06:30:00Z',snapshots:[{name:'other',present:true}]}]);await f.settle();
+ await f.nodes.more.events.click();await f.settle();await f.nodes['more-snapshots'].events.click();await f.settle();
+ assert.match(f.nodes.error.textContent,/归档.*失败/);assert.equal(f.nodes['snap-count'].textContent,'2');
+ assert.equal(f.nodes.images.children.length,1);
+});

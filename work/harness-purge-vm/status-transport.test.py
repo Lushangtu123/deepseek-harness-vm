@@ -22,7 +22,7 @@ class StatusTransport(unittest.TestCase):
     compile(script,'guest-status','exec')
     return subprocess.CompletedProcess(argv,0,json.dumps(actual),'')
    jobs={m.LABEL+'.plist':'same',m.WEB_LABEL+'.plist':'same'}
-   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'verify_recovery_bundle',return_value=(folder,{'helpers':{name:'same' for name in m.RECOVERY_HELPERS},'launchAgents':jobs,'createdAt':'2026-10-27T00:00:00Z'})),patch.object(m,'current_host_inventory',return_value={name:'same' for name in m.RECOVERY_HELPERS}),patch.object(m,'current_launch_inventory',return_value=jobs),patch.object(m,'image_command',return_value=MagicMock(stdout=json.dumps({'snapshots':[{'name':m.CURRENT_RECOVERY}]}))),patch.object(m,'command',side_effect=transport):
+   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'checked_recovery_source',side_effect=lambda path,*args:(path.read_bytes() if path.name=='guest-proof.json' else b'original',0o600)),patch.object(m,'verify_recovery_bundle',return_value=(folder,{'helpers':{name:'same' for name in m.RECOVERY_HELPERS},'launchAgents':jobs,'guestProofSha256':'a'*64,'createdAt':'2026-10-27T00:00:00Z'})),patch.object(m,'current_host_inventory',return_value={name:'same' for name in m.RECOVERY_HELPERS}),patch.object(m,'current_launch_inventory',return_value=jobs),patch.object(m,'image_command',return_value=MagicMock(stdout=json.dumps({'snapshots':[{'name':m.CURRENT_RECOVERY}]}))),patch.object(m,'command',side_effect=transport):
     self.assertEqual(m.deployment_status()['mode'],'improved')
  def test_ssh_stdin_preserves_pinned_trust_and_content(self):
   script="print('合成 inventory')\n"

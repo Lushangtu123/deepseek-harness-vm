@@ -111,4 +111,40 @@ else:raise SystemExit('Nonregular bundle accepted')
     except (ValueError,OSError):pass
    self.assertTrue(swapped,'Ancestor replacement control did not fire')
 
+ def helper_status_fixture(self,root):
+  folder,manifest=self.bundle(root);target=folder/'host-tools/qemu-image.py'
+  raw=('print('+repr(json.dumps({'snapshots':[{'name':m.CURRENT_RECOVERY}],'changedHelper':False}))+')\n').encode();target.write_bytes(raw);manifest['helpers'][target.name]=hashlib.sha256(raw).hexdigest();(folder/'manifest.json').write_text(json.dumps(manifest))
+  actual={'mode':'improved','configDir':'/home/purge/.dsh-improved','modeFile':'improved','filesChecked':1,'differentFiles':[]}
+  return folder,manifest,target,raw,actual
+
+ def test_helper_replaced_after_bundle_check_is_not_executed(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);folder,manifest,target,raw,actual=self.helper_status_fixture(root);verify=m.verify_recovery_bundle
+   def swapped(name):
+    result=verify(name);target.write_text("raise SystemExit('UNVERIFIED_HELPER_RAN')\n");return result
+   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'verify_recovery_bundle',side_effect=swapped),patch.object(m,'current_host_inventory',return_value=manifest['helpers']),patch.object(m,'current_launch_inventory',return_value=manifest['launchAgents']),patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps(actual))),patch.object(m,'command',wraps=m.command) as command:
+    result=m.deployment_status();self.assertEqual(result['mode'],'improved');self.assertEqual(result['recovery']['state'],'invalid');self.assertEqual(command.call_count,0,'Changed helper must be rejected before starting Python')
+
+ def test_helper_exec_uses_checked_bytes_even_if_original_path_changes(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);folder,manifest,target,raw,actual=self.helper_status_fixture(root);command=m.command;outputs=[]
+   def swap_before_exec(*args,**kwargs):
+    target.write_text("raise SystemExit('UNVERIFIED_HELPER_RAN')\n");result=command(*args,**kwargs);outputs.append(json.loads(result.stdout));return result
+   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'current_host_inventory',return_value=manifest['helpers']),patch.object(m,'current_launch_inventory',return_value=manifest['launchAgents']),patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps(actual))),patch.object(m,'command',side_effect=swap_before_exec):
+    result=m.deployment_status();self.assertEqual(result['mode'],'improved')
+   self.assertEqual(len(outputs),1,'Checked helper must actually execute');self.assertFalse(outputs[0]['changedHelper'])
+
+ def test_apply_reads_all_checked_sources_before_the_first_target_write(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);folder,manifest=self.bundle(root);tools=root/'installed';tools.mkdir();home=root/'home';jobs=home/'Library/LaunchAgents';jobs.mkdir(parents=True)
+   original=(folder/'host-tools/qemu-image.py').read_bytes();write=m.atomic_recovery_write;changed=False
+   def replace_remaining_source(*args,**kwargs):
+    nonlocal changed
+    if not changed:changed=True;(folder/'host-tools/qemu-image.py').write_bytes(b'changed-after-first-write')
+    return write(*args,**kwargs)
+   with patch.object(m,'ROOT',root),patch.object(m,'TOOLS',tools),patch.object(Path,'home',return_value=home),patch.object(m,'atomic_recovery_write',side_effect=replace_remaining_source):
+    try:m.apply_host_bundle(folder,manifest)
+    except RuntimeError as error:self.fail('Recovery read a changed source after starting writes: '+str(error))
+   self.assertTrue(changed);self.assertEqual((tools/'qemu-image.py').read_bytes(),original)
+
 if __name__=='__main__':unittest.main()
