@@ -87,14 +87,37 @@ async function refresh(){
 nodes.refresh.addEventListener('click',refresh);refresh();
 </script></html>`;
 
-// Yield floating artwork to real controls; keep a stable free position when possible.
+// Keep the requested position when clear; otherwise find its nearest free gap.
 export function chooseWidgetPlacement(image, controls, width, height) {
  const gap=12,bottom=height-64,w=image.width,h=image.height;
- if(![width,height,w,h].every(Number.isFinite)||w<=0||h<=0||w>width-2*gap||h>bottom-gap)return null;
- const clear=p=>p.x>=gap&&p.y>=gap&&p.x+w<=width-gap&&p.y+h<=bottom&&!controls.some(r=>p.x<r.x+r.width+4&&p.x+w>r.x-4&&p.y<r.y+r.height+4&&p.y+h>r.y-4);
- const candidates=[{x:image.x,y:image.y}];
- for(const x of [width-w-gap,gap])for(const y of [bottom-h,gap,Math.max(gap,(bottom-h)/2)])candidates.push({x,y});
- return candidates.find(clear)??null;
+ if(![width,height,image.x,image.y,w,h].every(Number.isFinite)||w<=0||h<=0||w>width-2*gap||h>bottom-gap)return null;
+ const maxX=width-w-gap,maxY=bottom-h,clamp=(v,lo,hi)=>Math.max(lo,Math.min(v,hi));
+ const obstacles=controls.filter(r=>[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.width>0&&r.height>0);
+ const clear=p=>!obstacles.some(r=>p.x<r.x+r.width+4&&p.x+w>r.x-4&&p.y<r.y+r.height+4&&p.y+h>r.y-4);
+ const preferred={x:clamp(image.x,gap,maxX),y:clamp(image.y,gap,maxY)};
+ if(clear(preferred))return preferred;
+ // At a nearest free position, y is either the requested y or an obstacle edge.
+ // Sweep those rows and their merged blocked x intervals, avoiding a pixel scan.
+ const ys=new Set([preferred.y,gap,maxY]);
+ for(const r of obstacles)for(const y of [r.y-h-4,r.y+r.height+4])if(y>=gap&&y<=maxY)ys.add(y);
+ let best=null,distance=Infinity;
+ const consider=(left,right,y)=>{
+  if(left>right)return;
+  const x=clamp(preferred.x,left,right),d=(x-image.x)**2+(y-image.y)**2;
+  if(d<distance){best={x,y};distance=d}
+ };
+ for(const y of ys){
+  const intervals=obstacles.filter(r=>y<r.y+r.height+4&&y+h>r.y-4)
+   .map(r=>[r.x-w-4,r.x+r.width+4]).filter(([a,b])=>b>gap&&a<maxX).sort((a,b)=>a[0]-b[0]);
+  let cursor=gap;
+  for(const [start,end]of intervals){
+   if(start>=cursor)consider(cursor,Math.min(start,maxX),y);
+   cursor=Math.max(cursor,end);
+   if(cursor>maxX)break;
+  }
+  if(cursor<=maxX)consider(cursor,maxX,y);
+ }
+ return best;
 }
 
 export function installFloatingLayout(choose) {
