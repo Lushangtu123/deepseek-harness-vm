@@ -87,7 +87,7 @@ test('The improved entrypoint registers a bound role section without enabling le
   const sections = []
   const source = fs.readFileSync(new URL('../package/lib/index.js', import.meta.url), 'utf8')
   const start = source.indexOf('export function apply('), end = source.indexOf('\nfunction applyHostHooks(', start)
-  const scope = { DEFAULTS: { enabled: true }, originalCapabilitiesEnabled: () => false, installStartupRecovery() {}, installSubagentRoleCapture() {},
+  const scope = { DEFAULTS: { enabled: true }, originalCapabilitiesEnabled: () => false, installPresetDefaultCleanup() {}, core: {findDshHome:()=>''}, installStartupRecovery() {}, installSubagentRoleCapture() {},
     addPromptSection(_ctx, section) { sections.push(section) }, vmAutonomyEnabled: () => false,
     PERSONAL_POLICY: 'consent-policy', VM_POLICY: '', applyHostHooks() {}, resolveSubagentRoleText,
     REDTEAM_ROLE_SECTION: 'dshpg-redteam-role', GLOBAL_PROMPT_ORDER: -100000 }

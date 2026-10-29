@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-merged-switch-20261029'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-merged-stability-20261029'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_CONFIG_FILES={'.config/harness-original-capabilities','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
@@ -656,9 +656,32 @@ def original_capabilities(action):
  if action=='status':return run()
  with vm_operation('switch'):return run()
 
+def repair_profile(*,apply=False):
+ if type(apply) is not bool:raise ValueError('Explicit boolean apply required')
+ script="""import {homedir} from 'node:os';
+import path from 'node:path';
+import {repairProfilePnpm} from 'file:///home/purge/tools/dsh-purge-personal-1.1.77-personal.1/lib/personal-pnpm-repair.mjs';
+if(process.platform!=='linux'||homedir()!=='/home/purge'||process.getuid()!==1000)throw Error('Dedicated VM required');
+const result=repairProfilePnpm('/home/purge/.dsh-improved/profiles/web',OPTIONS);
+if(result.backup)result.backup=path.basename(result.backup);
+console.log(JSON.stringify(result));
+""".replace('OPTIONS',json.dumps({'apply':apply},separators=(',',':')))
+ with vm_operation('switch'):
+  validate()
+  result=json.loads(ssh('/home/purge/.local/node/bin/node --input-type=module',input=script,timeout=30).stdout)
+  if not isinstance(result,dict) or result.get('ok') is not True or result.get('profile')!='web' or result.get('dryRun') is not (not apply):raise RuntimeError('Profile repair receipt unconfirmed')
+  if type(result.get('changed')) is not bool or type(result.get('wrote')) is not bool:raise RuntimeError('Profile repair result unconfirmed')
+  if result['wrote'] and (not apply or not result['changed']):raise RuntimeError('Profile repair write unconfirmed')
+  for key in ['beforeSha256','afterSha256']:
+   value=result.get(key)
+   if value is not None and (not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value)):raise RuntimeError('Profile repair digest unconfirmed')
+  if result['changed'] and any(result.get(key) is None for key in ['beforeSha256','afterSha256']):raise RuntimeError('Profile repair digest missing')
+  return result
+
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
  if args.action=='start':start(args.quiet)
+ elif args.action=='repair-profile':print(json.dumps(repair_profile(apply=args.apply_profile_repair)))
  elif args.action=='switch':switch(args.mode,args.quiet)
  elif args.action=='stop':stop()
  elif args.action=='restore':restore(args.confirm_restore,args.snapshot)

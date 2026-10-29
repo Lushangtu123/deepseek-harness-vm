@@ -108,6 +108,15 @@ class LauncherTests(unittest.TestCase):
   _,load,opened,_,_=self.run_menu(['not-a-choice','0'])
   load.assert_not_called();opened.assert_not_called()
 
+ def test_profile_repair_cancel_does_not_load_manager(self):
+  _,load,opened,output,_=self.run_menu(['8','取消','0'])
+  load.assert_not_called();opened.assert_not_called();self.assertIn('已取消',output)
+
+ def test_profile_repair_requires_confirmation_and_does_not_restart_or_open(self):
+  manager=self.manager();manager.repair_profile=Mock(return_value={'ok':True,'profile':'web','changed':False,'wrote':False,'dryRun':False})
+  self.run_menu(['8','修复','0'],manager)
+  manager.repair_profile.assert_called_once_with(apply=True);manager.start.assert_not_called();manager.switch.assert_not_called()
+
  def test_command_resolves_support_script_from_folder_with_spaces(self):
   source=Path(__file__).resolve().parents[1]/'Harness.command'
   self.assertTrue(source.is_file(),'Single double-click entry is missing')

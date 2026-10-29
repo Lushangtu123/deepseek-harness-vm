@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { findDshHome } from "./core.js";
+import { findDshHome, atomicWriteSync } from "./core.js";
 
 const OWNED_PRESET_IDS = ["redteam"];
 const FALLBACK_PRESET = "standard";
@@ -24,7 +24,7 @@ function readText(fp) {
 }
 
 function writeText(fp, text) {
-  fs.writeFileSync(fp, text, "utf8");
+  atomicWriteSync(fp, text, "utf8");
 }
 
 function listProfilePatchFiles(dshHome) {
@@ -38,8 +38,12 @@ function listProfilePatchFiles(dshHome) {
   }
   for (const name of names) {
     if (name === "node_modules") continue;
-    const fp = path.join(root, name, "cordis.patch.yml");
-    if (fs.existsSync(fp)) out.push(fp);
+    for (const file of ["cordis.patch.yml", "cordis.yml"]) {
+      const fp = path.join(root, name, file);
+      try {
+        if (fs.lstatSync(fp).isFile() && fs.realpathSync(fp) === path.resolve(fp)) out.push(fp);
+      } catch { /* missing or unsafe profile is not rewritten */ }
+    }
   }
   return out;
 }
@@ -49,7 +53,7 @@ function repairSelectedDefaultInYaml(text, fallback = FALLBACK_PRESET) {
   const src = String(text || "");
   if (!/selectedDefault/.test(src)) return { text: src, changed: false };
   const next = src.replace(
-    /(selectedDefault\s*:\s*)(["']?)(?:[\w.-]+\/)?redteam\2/gi,
+    /(^[ \t]*(?:-\s*)?selectedDefault\s*:\s*)(["']?)(?:[\w.-]+\/)?redteam\2(?=[ \t]*(?:#[^\r\n]*)?\r?$)/gmi,
     `$1$2${fallback}$2`,
   );
   return { text: next, changed: next !== src };
@@ -178,4 +182,36 @@ export function removeStaleAgentPresetDir(dshHome, id = "redteam") {
   } catch {
     return false;
   }
+}
+
+let pendingClear = null;
+
+function profileStillReferencesPlugin(home) {
+  try {
+    const fp = path.join(home || findDshHome(), 'profiles', 'web', 'package.json');
+    if (fs.realpathSync(fp) !== path.resolve(fp)) return true;
+    const pkg = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    for (const field of ['dependencies','devDependencies','optionalDependencies']) {
+      if (pkg[field]?.['dsh-purge']) return true;
+    }
+    return ['bundles','plugins'].some(field => [pkg[field],pkg.dsh?.profile?.[field]].some(list =>
+      Array.isArray(list) && list.some(item => String(typeof item === 'string' ? item : item?.name || item?.id || '').includes('dsh-purge'))));
+  } catch { return true; /* unknown ownership keeps the current default */ }
+}
+
+/** Full plugin disable only; original-capability mode changes leave it enabled. */
+export function installPresetDefaultCleanup(ctx, enabled, dshHome = "") {
+  if (pendingClear) { clearTimeout(pendingClear); pendingClear = null; }
+  if (!enabled) return clearOwnedSelectedDefault({ ctx, dshHome });
+  if (typeof ctx?.effect !== "function") return;
+  ctx.effect(() => () => {
+    if (pendingClear) clearTimeout(pendingClear);
+    pendingClear = setTimeout(() => {
+      pendingClear = null;
+      // Process shutdown also disposes effects. Only actual removal may clear
+      // a still-enabled plugin's default; a runtime-mode restart must keep it.
+      if (!profileStillReferencesPlugin(dshHome)) clearOwnedSelectedDefault({ ctx, dshHome });
+    }, 800);
+    pendingClear?.unref?.();
+  }, "dsh-purge: selected preset cleanup");
 }

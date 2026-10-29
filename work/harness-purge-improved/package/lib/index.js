@@ -1,4 +1,5 @@
 import { originalCapabilitiesEnabled, installOriginalCapabilities } from "./personal-original.mjs";
+import { installPresetDefaultCleanup } from "./preset-default.js";
 import { installPersonalControls, PERSONAL_POLICY, VM_POLICY, vmAutonomyEnabled } from "./personal-controls.mjs";
 import { authenticatedWebServer } from "./personal-http-auth.mjs";
 import { installStartupRecovery } from "./personal-startup-recovery.mjs";
@@ -1463,6 +1464,7 @@ export function apply(ctx, config) {
   const cfg = { ...DEFAULTS, ...(config || {}), autoApplyOnStart: false, autoUpdateOnStart: false,
     autoRevertOnMissing: false, hooksDenyBypass: originalCapabilities,
     autoContinue: false, autoRetry: originalCapabilities, originalCapabilities };
+  installPresetDefaultCleanup(ctx, cfg.enabled, core.findDshHome());
   if (!cfg.enabled) return;
   installStartupRecovery(ctx);
   installSubagentRoleCapture(ctx);

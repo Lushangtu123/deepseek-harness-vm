@@ -1,16 +1,20 @@
 # DeepSeek Harness VM 配置备份
 
-当前配置：**合并版 · 原版能力按需启用**，更新日期 **2026-10-29（America/Los_Angeles）**。这是专用 Linux VM 的私有配置与代码备份。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+当前配置：**合并版 · personal.2 稳定性更新**，更新日期 **2026-10-29（America/Los_Angeles）**。这是专用 Linux VM 的私有配置与代码备份。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+
+## 选择性稳定性更新
+
+个人包版本为 **1.1.77-personal.2**：从上游1.1.82回移ZIP目录项、skills软链接校验与预设清理修复，并提供显式pnpm配置维护。已有的权限位/启动器保护继续沿用。原版能力开关、owner认证、证据回执和角色绑定保留，父子会话权限继承保持原实现。[更新范围与验证](docs/stability-backports.md)。安装目录名personal.1保持稳定，实际版本以package.json为准。
 
 ## 统一启动入口
 
-双击仓库根目录的 **Harness.command**，回车默认打开合并版；同一菜单还提供原版能力启停、完整原版独立配置、状态检查、正常关机和恢复。已在目标模式下不会重复切换服务，日常打开保留原版能力开关状态。它调用原Mac已有控制器，移动时保持scripts目录与命令一起。[菜单与确认说明](docs/launcher.md)。
+双击仓库根目录的 **Harness.command**，回车默认打开合并版；同一菜单还提供原版能力启停、完整原版独立配置、状态检查、正常关机、恢复，以及选项8的pnpm配置维护。已在目标模式下不会重复切换服务，日常打开保留原版能力开关状态。它调用原Mac已有控制器，移动时保持scripts目录与命令一起。[菜单与确认说明](docs/launcher.md)。
 
 ## 原版能力开关
 
-打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。导出时开关关闭，仍使用日常改进版；启用后采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
+打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前恢复点为 `ready-merged-switch-20261029`，合并版r1、v30及旧恢复点保留。原版运行时副本和实际恢复磁盘不上传，本仓库继续保存配置与源码。
+当前恢复点为 `ready-merged-stability-20261029`，原开关版、合并版r1、v30及旧恢复点保留。原版运行时副本和实际恢复磁盘不上传，本仓库继续保存配置与源码。
 
 ## 内容
 
@@ -21,7 +25,7 @@ v29 修复桌宠移动抖动和双击余额气泡被隐藏：保留与 GitHub �
 | 目录 | 保存内容 |
 | --- | --- |
 | `guest-home/` | 从运行中 VM 读取的配置、预设、6 组技能、systemd 服务、命令入口、REA/PentAGI 连接配置与版本检查器 |
-| `work/harness-purge-improved/` | 与当前 VM 115 项摘要一致的改进版 dsh-purge 源码及 JavaScript 回归测试 |
+| `work/harness-purge-improved/` | 与当前 VM 116 项摘要一致的改进版 dsh-purge 源码及 JavaScript 回归测试 |
 | `runtime-overrides/` | 当前 VM 修改过的四个官方运行时模块及其版本、许可证；按原路径另存，不提交 node_modules |
 | `work/harness-purge-vm/` | 与当前安装一致的五个 Mac 运维工具及测试，包括网页入口、诊断、恢复点和隔离代理 |
 | `work/toolchain-version-checker/` | REA、reverse-skill、PentAGI 固定来源版本检查器及测试 |

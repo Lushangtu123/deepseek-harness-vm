@@ -15,6 +15,7 @@ Harness 启动与管理
   5  检查当前状态（只读）
   6  正常关闭虚拟机
   7  恢复当前已验收版本（需先关闭虚拟机）
+  8  修复合并版 pnpm 配置（仅已有构建配置，需 VM 运行）
   0  退出
 """
 
@@ -76,12 +77,21 @@ def execute(choice):
   '3':('停用','将切回日常运行时，服务可能重启；先等待任务结束。'),
   '4':('原版','将进入保留的完整原版独立配置；切换会重启服务。'),
   '6':('关闭','将正常关闭专用虚拟机和本机代理，请先结束任务。'),
+  '8':('修复','仅修复合并版 web profile 的 pnpm 键污染，保留明确的 false；不重启、不安装插件。'),
  }
  if choice in confirmations:
   word,notice=confirmations[choice];print(notice)
   if input('输入“'+word+'”继续，其他输入取消：').strip()!=word:
    print('已取消。');return
  manager=load_manager()
+ if choice=='8':
+  repair=getattr(manager,'repair_profile',None)
+  if not callable(repair):raise LauncherNotice('当前控制器尚不支持此维护操作。')
+  value=repair(apply=True)
+  if not isinstance(value,dict) or value.get('ok') is not True or value.get('profile')!='web' or value.get('dryRun') is not False or type(value.get('wrote')) is not bool:
+   raise LauncherNotice('配置修复结果未确认，请先核对；不会自动重试。')
+  print('pnpm 配置已修复，原文件备份已保留。' if value['wrote'] else '无需修复，未写入任何配置。')
+  return
  if choice=='5':show_status(manager);return
  if choice=='6':manager.stop();return
  if choice=='7':
@@ -113,8 +123,8 @@ def main():
   try:choice=input('请选择 [1]：').strip() or '1'
   except (EOFError,KeyboardInterrupt):print('\n已退出。');return result
   if choice=='0':return result
-  if choice not in {'1','2','3','4','5','6','7'}:
-   print('请输入 0 至 7。');continue
+  if choice not in {'1','2','3','4','5','6','7','8'}:
+   print('请输入 0 至 8。');continue
   try:execute(choice);result=0
   except EOFError:print('\n已取消。');return result
   except KeyboardInterrupt:print('\n操作已中断，请核对状态；不会自动重试。');return 130
