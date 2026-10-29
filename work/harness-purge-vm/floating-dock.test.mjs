@@ -33,10 +33,10 @@ test('Narrow docking fits the pet while retaining usable app width and mirrored 
  assert.equal(p.x,12);assert.equal(p.y,12);assert.ok(p.width<=65);assert.ok(425-p.lane>=330);assert.equal(p.leftLane,p.lane);
  assert.equal(health.planPetDock('bad',425,664,100,100),null);
 });
-test('Completed corner drags identify corner intent without committing cancelled or small movements',()=>{
+test('Manual drags release presets to native snapping without committing cancelled or small movements',()=>{
  assert.equal(typeof health.dragPetCorner,'function');
  const start={x:1062,y:285,width:171,height:171,pointerX:1165,pointerY:380};
- assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:640},1247,686),'bottom-right');
+ assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:640},1247,686),'free');
  assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:300},1247,686),'free');
  assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:381},1247,686),null);
  assert.equal(health.dragPetCorner(start,{clientX:0,clientY:0},1247,686),null);

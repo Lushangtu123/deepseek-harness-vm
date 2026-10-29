@@ -130,9 +130,9 @@ export function planPetDock(corner,width,height,artWidth,artHeight) {
 export function dragPetCorner(start,end,width,height) {
  if(!start||![start.x,start.y,start.width,start.height,start.pointerX,start.pointerY,end?.clientX,end?.clientY,width,height].every(Number.isFinite)||end.clientX===0&&end.clientY===0)return null;
  const dx=end.clientX-start.pointerX,dy=end.clientY-start.pointerY;
- if(dx*dx+dy*dy<36)return null;
- const x=start.x+dx,y=start.y+dy,h=x<=36?'left':x+start.width>=width-36?'right':null,v=y<=36?'top':y+start.height>=height-36?'bottom':null;
- return h&&v?v+'-'+h:'free';
+ // Original endDrag owns the 3px drag threshold, edge zones, flip and persistence.
+ // Manual movement releases our explicit preset rather than adding another snapper.
+ return dx*dx+dy*dy<9?null:'free';
 }
 
 export function installPluginPetPanel(onAction) {
@@ -172,12 +172,12 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
  document.head.appendChild(style);
  style.textContent+=':is(.dshwv-pop)[data-harness-occluded="true"]{opacity:0!important;pointer-events:none!important}:is(.dshwv-pop)[data-harness-occluded="true"] *{pointer-events:none!important}';
  if(planDock)style.textContent+='#root{width:calc(100% - var(--harness-pet-lane,0px))!important;margin-left:var(--harness-pet-left-lane,0px)!important}#root .dshp-launch{right:calc(16px + var(--harness-pet-lane,0px) - var(--harness-pet-left-lane,0px))!important;bottom:calc(16px + var(--harness-pet-footer-inset,0px))!important}#harness-vm-identity{left:calc(12px + var(--harness-pet-left-lane,0px))!important;max-width:calc(100vw - 24px - var(--harness-pet-lane,0px))!important}';
- let pending=false,dragging=false,dragStart=null,corner='free',storageAvailable=true,pluginEnabled=true,componentEnabled=true;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
+ let pending=false,dragging=false,dragMoved=false,dragStart=null,corner='free',storageAvailable=true,pluginEnabled=true,componentEnabled=true;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
  const corners=['top-left','top-right','bottom-left','bottom-right','free'];
  if(planDock)try{const saved=localStorage.getItem('harness-pet-corner-v1');if(corners.includes(saved))corner=saved}catch{storageAvailable=false}
  const setProperty=(node,key,value)=>{if(node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)};
  const changeCorner=value=>{corner=value;try{localStorage.setItem('harness-pet-corner-v1',value)}catch{storageAvailable=false}schedule()};
- const renderPetPanel=mountPetPanel?.(action=>{dragging=false;dragStart=null;const summary=document.getElementById('harness-vm-identity');if(summary?.open)summary.open=false;changeCorner(action==='reset'?'bottom-right':'free')});
+ const renderPetPanel=mountPetPanel?.(action=>{dragging=false;dragMoved=false;dragStart=null;const summary=document.getElementById('harness-vm-identity');if(summary?.open)summary.open=false;changeCorner(action==='reset'?'bottom-right':'free')});
  const dockMenus=new WeakSet();
  const addDockMenu=()=>{
   if(!planDock)return;
@@ -218,7 +218,17 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   if(componentSwitch&&pluginEnabled)componentEnabled=componentSwitch.getAttribute('aria-checked')!=='false';
   if(!widget||!img||!pluginEnabled||!componentEnabled){if(widget)setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:false,hidden:true,corner});if(planDock)for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){setProperty(node,'--harness-pet-lane','0px');setProperty(node,'--harness-pet-left-lane','0px');setProperty(node,'--harness-pet-footer-inset','0px')}return}
   if(dragging)return;
-  let dock=planDock?.(corner,innerWidth,innerHeight,img.getBoundingClientRect().width,img.getBoundingClientRect().height);
+  const measure=()=>{
+   const paint=img.getBoundingClientRect(),box=widget.getBoundingClientRect(),art=getComputedStyle(img),css=getComputedStyle(widget);
+   const width=parseFloat(art.width),height=parseFloat(art.height),rootWidth=parseFloat(css.width),rootHeight=parseFloat(css.height);
+   if([width,height,rootWidth,rootHeight].every(n=>Number.isFinite(n)&&n>0)&&art.display!=='none'){
+    const originX=Number.isFinite(parseFloat(widget.style.left))?parseFloat(widget.style.left):box.left,originY=Number.isFinite(parseFloat(widget.style.top))?parseFloat(widget.style.top):box.top;
+    const flipped=widget.classList?.contains('dshwv-left')??false,x=originX+(flipped?0:rootWidth-width),y=originY+rootHeight-height;
+    return{x,y,left:x,top:y,right:x+width,bottom:y+height,width,height,originX,originY,rootWidth,flipped};
+   }
+   return{x:paint.x,y:paint.y,left:paint.left,top:paint.top,right:paint.right,bottom:paint.bottom,width:paint.width,height:paint.height,originX:box.left,originY:box.top,rootWidth:box.width,flipped:false};
+  };
+  let geometry=measure(),dock=planDock?.(corner,innerWidth,innerHeight,geometry.width,geometry.height);
   if(planDock){
    for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){
     setProperty(node,'--harness-pet-lane',(dock?.lane??0)+'px');setProperty(node,'--harness-pet-left-lane',(dock?.leftLane??0)+'px');
@@ -227,20 +237,15 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
    const limit=dock?dock.rootLimit+'px':'';
    if(widget.style.maxWidth!==limit)widget.style.maxWidth=limit;
    if(widget.style.maxHeight!==limit)widget.style.maxHeight=limit;
-   dock=planDock(corner,innerWidth,innerHeight,img.getBoundingClientRect().width,img.getBoundingClientRect().height);
+   geometry=measure();dock=planDock(corner,innerWidth,innerHeight,geometry.width,geometry.height);
    widget.setAttribute('data-harness-corner',dock?corner:'free');
    for(const menu of document.querySelectorAll('.dshwv-menu'))for(const row of menu.querySelectorAll('.harness-pet-dock')){
     const label=row.querySelector('span');const text='位置：'+({'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下',free:'自由'}[corner])+(storageAvailable?'':'（仅本页）');if(label&&label.textContent!==text)label.textContent=text;
     for(const button of row.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.getAttribute('aria-label')===(corner==='free'?'桌宠自由拖动':'桌宠停靠'+{'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下'}[corner]+'角')));
    }
   }
-  const image=img.getBoundingClientRect();if(image.width<=0||image.height<=0){setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:true,hidden:true,corner});return}
-  let left=image.left,top=image.top,right=image.right,bottom=image.bottom;
-  for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open')){
-   const css=getComputedStyle(popup),r=popup.getBoundingClientRect();
-   if(css.display!=='none'&&css.visibility==='visible'&&Number(css.opacity)>.01&&r.width&&r.height){left=Math.min(left,r.left);top=Math.min(top,r.top);right=Math.max(right,r.right);bottom=Math.max(bottom,r.bottom)}
-  }
-  const bounds=dock?{x:image.left,y:image.top,width:image.width,height:image.height}:{x:left,y:top,width:right-left,height:bottom-top};
+  const image=geometry;if(image.width<=0||image.height<=0){setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:true,hidden:true,corner});return}
+  const bounds={x:image.left,y:image.top,width:image.width,height:image.height};
   const controls=[];
   for(const el of document.querySelectorAll('button,input,textarea,select,a[href],summary,[role="switch"],[role="checkbox"],[role="combobox"],[role="menuitem"],[role="button"],[role="tab"],[role="treeitem"],[contenteditable="true"]')){
    if(el.closest('#harness-vm-identity,[class*="dshwv-"]'))continue;
@@ -248,7 +253,6 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
    if(r.width>0&&r.height>0&&r.x<innerWidth&&r.y<innerHeight-(dock?0:56)&&r.right>0&&r.bottom>0&&getComputedStyle(el).visibility==='visible')controls.push({x:r.x,y:r.y,width:r.width,height:r.height});
   }
   const overlaps=(r,c)=>r.left<c.x+c.width+4&&r.right>c.x-4&&r.top<c.y+c.height+4&&r.bottom>c.y-4;
-  for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open'))setHidden(popup,!!dock&&controls.some(c=>overlaps(popup.getBoundingClientRect(),c)));
   const dockBlocked=dock&&controls.some(c=>overlaps({left:dock.x,right:dock.x+dock.width,top:dock.y,bottom:dock.y+dock.height},c));
   const placement=document.getElementById('harness-vm-identity')?.open||dockBlocked?null:dock??choose({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},controls,innerWidth,innerHeight);
   const hidden=placement===null;
@@ -258,9 +262,22 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   if(placement){
    const dx=placement.x-bounds.x,dy=placement.y-bounds.y;
    if(Math.abs(dx)>.5||Math.abs(dy)>.5){
-    const r=widget.getBoundingClientRect();Object.assign(widget.style,{left:(r.left+dx)+'px',top:(r.top+dy)+'px',right:'auto',bottom:'auto'});
+    Object.assign(widget.style,{left:(image.originX+dx)+'px',top:(image.originY+dy)+'px',right:'auto',bottom:'auto'});
     writtenStyles.set(widget,widget.getAttribute('style'));
    }
+  }
+  // Bubble geometry is independent: opening a balance bubble must not move the
+  // pet or silently hide the result. Prefer a gap, then use the native overlay.
+  const anchor=measure();
+  for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open')){
+   setHidden(popup,false);
+   const css=getComputedStyle(popup),r=popup.getBoundingClientRect(),width=parseFloat(css.width)||r.width,height=parseFloat(css.height)||r.height;
+   if(!(width>0&&height>0))continue;
+   const x=anchor.originX+(anchor.flipped?anchor.rootWidth-width:0),y=anchor.originY;
+   const target=choose({x,y,width,height},controls,innerWidth,innerHeight)??{x:Math.max(8,Math.min(x,innerWidth-width-8)),y:Math.max(8,Math.min(y,innerHeight-height-8))};
+   const left=(anchor.flipped?anchor.originX+anchor.rootWidth-target.x-width:target.x-anchor.originX)+'px',top=(target.y-anchor.originY)+'px';
+   if(popup.style.left!==left)popup.style.left=left;if(popup.style.top!==top)popup.style.top=top;
+   writtenStyles.set(popup,popup.getAttribute('style'));
   }
   if(dock)for(const menu of document.querySelectorAll('.dshwv-menu'))if(menu.classList.contains('dshwv-menu-open')){
    menu.style.maxWidth=(innerWidth-16)+'px';menu.style.maxHeight=(innerHeight-16)+'px';menu.style.overflowY='auto';
@@ -275,9 +292,10 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
  }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open','aria-checked']});
  if(typeof ResizeObserver!=='undefined'){const sizes=new ResizeObserver(schedule);sizes.observe(root)}
  window.addEventListener('resize',schedule);document.addEventListener('scroll',schedule,true);
- document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-root')){dragging=true;const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();dragStart=r?{x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY}:null}},true);
- document.addEventListener('pointerup',event=>{if(dragging&&dragCorner){const value=dragCorner(dragStart,event,innerWidth,innerHeight);if(value)changeCorner(value)}dragStart=null;dragging=false;schedule()},true);
- document.addEventListener('pointercancel',()=>{dragStart=null;dragging=false;schedule()},true);
+ document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-img')){dragging=true;dragMoved=false;const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();dragStart=r?{x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY}:null}},true);
+ document.addEventListener('pointermove',event=>{if(dragging&&dragStart){const dx=event.clientX-dragStart.pointerX,dy=event.clientY-dragStart.pointerY;if(dx*dx+dy*dy>=9)dragMoved=true}},true);
+ document.addEventListener('pointerup',event=>{if(dragging&&dragCorner){const value=dragCorner(dragStart,event,innerWidth,innerHeight);if(value||dragMoved&&Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&(event.clientX!==0||event.clientY!==0))changeCorner(value??'free')}dragStart=null;dragging=false;dragMoved=false;schedule()},true);
+ document.addEventListener('pointercancel',()=>{dragStart=null;dragging=false;dragMoved=false;schedule()},true);
  schedule();
 }
 

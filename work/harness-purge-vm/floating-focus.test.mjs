@@ -8,12 +8,12 @@ function fixture(initial = {}) {
  const summary={focus(){document.activeElement=summary}};
  const panel={open:true,querySelector:()=>summary};
  const image={getBoundingClientRect:()=>({left:100,top:100,right:200,bottom:200,width:100,height:100})};
- const widget={style:{},contains:el=>el===button,querySelector:()=>image,querySelectorAll:()=>[],getAttribute:name=>attrs.get(name)??null,hasAttribute:name=>attrs.has(name),setAttribute:(name,value)=>attrs.set(name,String(value)),removeAttribute:name=>attrs.delete(name)};
+ const widget={style:{},getBoundingClientRect:()=>({left:100,top:100,width:100,height:100}),contains:el=>el===button,querySelector:()=>image,querySelectorAll:()=>[],getAttribute:name=>attrs.get(name)??null,hasAttribute:name=>attrs.has(name),setAttribute:(name,value)=>attrs.set(name,String(value)),removeAttribute:name=>attrs.delete(name)};
  const button={blur(){document.activeElement=null}};
  const menuAttrs=new Map(),menuButton={};
  const menu={opened:false,contains:el=>el===menuButton,classList:{contains:()=>menu.opened},getAttribute:name=>menuAttrs.get(name)??null,setAttribute:(name,value)=>menuAttrs.set(name,String(value)),removeAttribute:name=>menuAttrs.delete(name)};
  const document={activeElement:button,head:{appendChild(){}},body:{},getElementById:id=>id==='root'?{}:id==='harness-vm-identity'?panel:null,createElement:()=>({}),querySelector:()=>widget,querySelectorAll:selector=>selector==='.dshwv-menu'?[menu]:[],addEventListener(name,fn){events.set(name,fn)}};
- vm.runInNewContext('('+installFloatingLayout.toString()+')(()=>({x:100,y:100}))',{document,window:{addEventListener(name,fn){events.set(name,fn)}},innerWidth:425,innerHeight:664,setTimeout(fn){timers.push(fn)}});
+ vm.runInNewContext('('+installFloatingLayout.toString()+')(()=>({x:100,y:100}))',{document,window:{addEventListener(name,fn){events.set(name,fn)}},getComputedStyle:()=>({}),innerWidth:425,innerHeight:664,setTimeout(fn){timers.push(fn)}});
  return{attrs,widget,document,summary,panel,menu,menuAttrs,menuButton,run(){timers.shift()?.()},resize(){events.get('resize')();this.run()}};
 }
 
