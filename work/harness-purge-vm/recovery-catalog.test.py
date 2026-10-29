@@ -3,12 +3,12 @@ from pathlib import Path
 from unittest.mock import patch,MagicMock
 spec=importlib.util.spec_from_file_location('catalog_manager',Path(__file__).with_name('manage.py'));m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class RecoveryCatalog(unittest.TestCase):
- def catalog(self,root,snapshots=None,fail=False,real_verify=False):
+ def catalog(self,root,snapshots=None,fail=False,real_verify=False,after=None):
   (root/'recoveries').mkdir(exist_ok=True)
   image=root/'Harness Purge Original.utm/Data/ubuntu.qcow2';image.parent.mkdir(parents=True,exist_ok=True);image.write_bytes(b'synthetic')
   verify=patch.object(m,'verify_recovery_bundle',wraps=m.verify_recovery_bundle) if real_verify else patch.object(m,'verify_recovery_bundle',return_value=(root,{'createdAt':'2026-10-27T00:00:00Z'}))
   with patch.object(m,'ROOT',root),patch.object(m,'VM',image.parent.parent),patch.object(m,'validate'),patch.object(m,'image_command',side_effect=OSError('private failure') if fail else None,return_value=MagicMock(stdout=json.dumps({'snapshots':snapshots or []}))),verify:
-   return m.recovery_catalog()
+   return m.recovery_catalog() if after is None else m.recovery_catalog(after=after)
  def test_catalog_protects_baselines_and_latest_three_without_deleting(self):
   self.assertTrue(callable(getattr(m,'recovery_catalog',None)),'Missing read-only recovery catalog')
   with tempfile.TemporaryDirectory() as temp:
@@ -49,4 +49,48 @@ class RecoveryCatalog(unittest.TestCase):
    by_name={row['name']:row for row in result['snapshots']}
    self.assertEqual(by_name[old.name]['bundleState'],'invalid')
    self.assertIn(m.CURRENT_RECOVERY,by_name)
+ def test_metadata_trees_do_not_hide_known_offline_images(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();archive=root/'archived-validation'
+   for i in range(3):
+    entry=archive/f'restore-probe-{i:02d}'
+    for n in range(180):(entry/'host-tools'/f'cache-{n}').mkdir(parents=True)
+    image=entry/'offline-image/Data/ubuntu.qcow2';image.parent.mkdir(parents=True);image.write_bytes(b'image')
+   result=self.catalog(root)
+   self.assertFalse(result['truncated']);self.assertEqual(len(result['images']),3)
+   self.assertEqual(result['archiveScan']['skippedMetadataDirectories'],3)
+ def test_archive_pages_cover_all_entries_without_duplicates(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();archive=root/'archived-validation'
+   expected=[]
+   for i in range(35):
+    image=archive/f'probe-{i:02d}/offline-image/Data/ubuntu.qcow2';image.parent.mkdir(parents=True);image.write_bytes(b'image');expected.append(str(image.relative_to(archive)))
+   after=None;seen=[];cursors=set()
+   for page in range(4):
+    result=self.catalog(root,after=after);self.assertFalse(result['truncated']);self.assertLessEqual(result['archiveScan']['entriesScanned'],16)
+    seen.extend(row['id'] for row in result['images']);after=result['nextCursor']
+    if after is None:break
+    self.assertNotIn(after,cursors);cursors.add(after)
+   self.assertEqual(seen,expected);self.assertEqual(len(cursors),2)
+ def test_invalid_archive_cursor_cannot_escape_the_fixed_root(self):
+  with tempfile.TemporaryDirectory() as temp:
+   for cursor in ['../outside','a/b','.hidden','provider-name','x'*241]:
+    with self.subTest(cursor=cursor),self.assertRaises(ValueError):self.catalog(Path(temp).resolve(),after=cursor)
+ def test_depth_limit_is_named_and_not_silently_complete(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();image=root/'archived-validation/a/b/c/d/e/f/image.qcow2';image.parent.mkdir(parents=True);image.write_bytes(b'image')
+   result=self.catalog(root);self.assertTrue(result['truncated']);self.assertIn('depth-limit',result['archiveScan']['reasons'])
+ def test_exact_page_budgets_do_not_consume_the_next_unvisited_archive(self):
+  for budget in ['directories','images']:
+   with self.subTest(budget=budget),tempfile.TemporaryDirectory() as temp:
+    root=Path(temp).resolve();archive=root/'archived-validation';large=archive/'a-large';large.mkdir(parents=True)
+    if budget=='directories':
+     for i in range(511):(large/f'dir-{i:03d}').mkdir()
+    else:
+     for i in range(80):(large/f'image-{i:02d}.qcow2').write_bytes(b'image')
+    for name in ['b-image','c-image']:
+     image=archive/name/'disk.qcow2';image.parent.mkdir();image.write_bytes(b'image')
+    first=self.catalog(root);self.assertEqual(first['nextCursor'],'a-large');self.assertFalse(first['truncated'])
+    second=self.catalog(root,after=first['nextCursor']);self.assertIsNone(second['nextCursor']);self.assertFalse(second['truncated'])
+    self.assertEqual([row['id'] for row in second['images']],['b-image/disk.qcow2','c-image/disk.qcow2'])
 if __name__=='__main__':unittest.main()

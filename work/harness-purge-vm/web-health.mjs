@@ -61,30 +61,40 @@ export const RECOVERY_HTML = `<!doctype html><html lang="zh-CN"><meta charset="u
 <div class="cards"><div class="card"><span>上次读取的宿主可用空间</span><strong id="free">待核对</strong></div><div class="card"><span>磁盘快照 · 本次显示</span><strong id="snap-count">待核对</strong></div><div class="card"><span>归档镜像 · 本次显示</span><strong id="image-count">待核对</strong></div></div>
 <p id="status" role="status">正在读取本机清单…</p><p id="error" role="alert"></p>
 <section><h2>磁盘快照与恢复归档</h2><p class="note">归档摘要匹配仅表示归档文件校验通过；实际恢复与启动结果以各轮验收记录为准。</p><div class="scroll"><table><thead><tr><th>名称</th><th>磁盘 / 归档</th><th>保留建议</th><th>建立时间</th></tr></thead><tbody id="snapshots"></tbody></table></div></section>
-<section><h2>离线验收镜像</h2><p class="note">逻辑大小与分配块大小可能包含 APFS 共享数据，不能相加作为删除后可释放容量；本页不估算可回收空间。</p><div class="scroll"><table><thead><tr><th>归档内位置</th><th>逻辑大小</th><th>分配块大小</th><th>建议</th></tr></thead><tbody id="images"></tbody></table></div></section></main>
+<section><h2>离线验收镜像</h2><p class="note">逻辑大小与分配块大小可能包含 APFS 共享数据，不能相加作为删除后可释放容量；本页不估算可回收空间。</p><div class="scroll"><table><thead><tr><th>归档内位置</th><th>逻辑大小</th><th>分配块大小</th><th>建议</th></tr></thead><tbody id="images"></tbody></table></div><button id="more" hidden>加载下一批</button><p class="note">按归档逐批读取，跳过辅助代码目录；目录变化后请刷新清单重新核对。</p></section></main>
 <script>
-const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh'].map(id=>[id,document.getElementById(id)]));let generation=0,active;
+const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more'].map(id=>[id,document.getElementById(id)]));let generation=0,active,nextCursor=null,loadedRecovery=null;const images=new Map(),limits=new Set();let entriesScanned=0;
 const size=value=>Number.isSafeInteger(value)&&value>=0?(value/1073741824).toFixed(2)+' GiB':'未确认';
 const make=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el};
 const row=(target,values)=>{const tr=document.createElement('tr');for(const value of values)tr.appendChild(make('td',value));target.appendChild(tr)};
-async function refresh(){
- const current=++generation;active?.abort();const controller=new AbortController();active=controller;nodes.refresh.disabled=true;nodes.error.textContent='';nodes.status.textContent='正在重新读取；下方旧清单不代表当前状态。';
+async function refresh(append=false){
+ if(append&&!nextCursor)return;
+ const after=append?nextCursor:null;if(!append){nextCursor=null;nodes.more.hidden=true;}
+ const current=++generation;active?.abort();const controller=new AbortController();active=controller;nodes.refresh.disabled=nodes.more.disabled=true;nodes.error.textContent='';nodes.status.textContent='正在重新读取；下方旧清单不代表当前状态。';
  const timer=setTimeout(()=>controller.abort(),11000);
  const aborted=new Promise((_resolve,reject)=>controller.signal.addEventListener('abort',()=>reject(Error('清单读取超时或已取消，请重试。')),{once:true}));
  try{
-  const data=await Promise.race([fetch('/__harness/recoveries',{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal}).then(async response=>{if(!response.ok)throw Error('清单暂不可用，请确认本机入口和磁盘可读取后重试。');return response.json()}),aborted]);
+  const data=await Promise.race([fetch('/__harness/recoveries'+(after?'?'+new URLSearchParams({after}):''),{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal}).then(async response=>{if(!response.ok)throw Error('清单暂不可用，请确认本机入口和磁盘可读取后重试。');return response.json()}),aborted]);
   if(current!==generation)return;
-  nodes.free.textContent=size(data.storage?.freeBytes);nodes['snap-count'].textContent=data.snapshotState==='observed'?String(data.snapshots.filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=String(data.images.length);
+  if(append&&loadedRecovery!==data.currentRecovery)throw Error('恢复入口已变化，请刷新清单重新读取。');
+  if(!append){images.clear();limits.clear();entriesScanned=0;}
+  loadedRecovery=data.currentRecovery;nextCursor=data.nextCursor??null;
+  for(const item of data.images)images.set(item.id,item);
+  const reasons=data.archiveScan?.reasons??[];for(const reason of reasons)limits.add(reason);if(data.truncated&&!reasons.length)limits.add('unknown-limit');
+  entriesScanned+=data.archiveScan?.entriesScanned??0;
+  nodes.free.textContent=size(data.storage?.freeBytes);nodes['snap-count'].textContent=data.snapshotState==='observed'?String(data.snapshots.filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=String(images.size);
   nodes.snapshots.replaceChildren();nodes.images.replaceChildren();
   const bundle={verified:'归档摘要匹配',missing:'未建立归档',invalid:'归档校验失败','not-reviewed':'非改进版归档'};
   for(const item of data.snapshots)row(nodes.snapshots,[item.name+(item.current?' · 读取时的恢复入口':''),(item.present===true?'快照已存在':item.present===false?'快照未建立':'快照未确认')+' / '+(bundle[item.bundleState]||'归档未确认'),item.protected?'建议保留':item.reviewCandidate?'人工复核候选':'待核对',item.createdAt?new Date(item.createdAt).toLocaleString('zh-CN'):'无归档时间']);
-  for(const item of data.images)row(nodes.images,[item.id,size(item.logicalBytes),size(item.allocatedBytes),'人工复核候选']);
-  if(!data.images.length)row(nodes.images,['本次扫描范围内没有可显示镜像','','','']);
-  nodes.status.textContent='清单核对：'+(data.observedAt?new Date(data.observedAt).toLocaleString('zh-CN'):'时间未确认')+' · 读取时的恢复入口：'+data.currentRecovery+(data.truncated?' · 清单已截断，仅显示部分结果。':'')+(data.snapshotState==='unavailable'?' · 磁盘快照元数据暂不可读，不能据此判断快照不存在。':'');
+  for(const item of images.values())row(nodes.images,[item.id,size(item.logicalBytes),size(item.allocatedBytes),'人工复核候选']);
+  if(!images.size)row(nodes.images,['本次扫描范围内没有可显示镜像','','','']);
+  const labels={'snapshot-limit':'快照条数上限','entry-limit':'归档条目上限','directory-limit':'目录扫描上限','image-limit':'单批镜像条数上限','depth-limit':'目录深度上限','time-limit':'本次扫描时间上限','read-error':'部分目录不可读','invalid-root':'归档目录不可读','unknown-limit':'部分结果未读取'};
+  nodes.more.hidden=!nextCursor;
+  nodes.status.textContent='清单核对：'+(data.observedAt?new Date(data.observedAt).toLocaleString('zh-CN'):'时间未确认')+' · 读取时的恢复入口：'+data.currentRecovery+' · 已读取 '+entriesScanned+' 个归档条目'+(nextCursor?' · 还有 '+(data.archiveScan?.entriesRemaining??'若干')+' 个条目，可加载下一批。':' · 本轮归档批次已读取完。')+(limits.size?' · 清单仍有缺口：'+[...limits].map(reason=>labels[reason]||labels['unknown-limit']).join('、')+'。':'')+(data.snapshotState==='unavailable'?' · 磁盘快照元数据暂不可读，不能据此判断快照不存在。':'');
  }catch(error){if(current===generation){nodes.error.textContent=error.message;nodes.status.textContent='本次读取失败；下方若有旧清单，仅供历史参考。'}}
- finally{clearTimeout(timer);if(current===generation){nodes.refresh.disabled=false;active=undefined}}
+ finally{clearTimeout(timer);if(current===generation){nodes.refresh.disabled=nodes.more.disabled=false;active=undefined}}
 }
-nodes.refresh.addEventListener('click',refresh);refresh();
+nodes.refresh.addEventListener('click',()=>refresh());nodes.more.addEventListener('click',()=>refresh(true));refresh();
 </script></html>`;
 
 // Keep the requested position when clear; otherwise find its nearest free gap.
@@ -217,7 +227,9 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   if(pluginSwitch)pluginEnabled=pluginSwitch.getAttribute('aria-checked')!=='false';
   if(componentSwitch&&pluginEnabled)componentEnabled=componentSwitch.getAttribute('aria-checked')!=='false';
   if(!widget||!img||!pluginEnabled||!componentEnabled){if(widget)setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:false,hidden:true,corner});if(planDock)for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){setProperty(node,'--harness-pet-lane','0px');setProperty(node,'--harness-pet-left-lane','0px');setProperty(node,'--harness-pet-footer-inset','0px')}return}
-  if(dragging)return;
+  // The original plugin can end a gesture itself (lost mouse-up, long press,
+  // menu interaction). Its class is authoritative; never leave our guard stuck.
+  if(dragging){if(widget.classList?.contains('dshwv-dragging'))return;dragging=false;dragMoved=false;dragStart=null}
   const measure=()=>{
    const paint=img.getBoundingClientRect(),box=widget.getBoundingClientRect(),art=getComputedStyle(img),css=getComputedStyle(widget);
    const width=parseFloat(art.width),height=parseFloat(art.height),rootWidth=parseFloat(css.width),rootHeight=parseFloat(css.height);
@@ -291,11 +303,34 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   if(records.some(r=>r.attributeName==='open'||(!r.target.closest?.('#harness-vm-identity')&&!(r.attributeName==='style'&&writtenStyles.get(r.target)===r.target.getAttribute?.('style')))))schedule();
  }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open','aria-checked']});
  if(typeof ResizeObserver!=='undefined'){const sizes=new ResizeObserver(schedule);sizes.observe(root)}
- window.addEventListener('resize',schedule);document.addEventListener('scroll',schedule,true);
- document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-img')){dragging=true;dragMoved=false;const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();dragStart=r?{x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY}:null}},true);
- document.addEventListener('pointermove',event=>{if(dragging&&dragStart){const dx=event.clientX-dragStart.pointerX,dy=event.clientY-dragStart.pointerY;if(dx*dx+dy*dy>=9)dragMoved=true}},true);
- document.addEventListener('pointerup',event=>{if(dragging&&dragCorner){const value=dragCorner(dragStart,event,innerWidth,innerHeight);if(value||dragMoved&&Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&(event.clientX!==0||event.clientY!==0))changeCorner(value??'free')}dragStart=null;dragging=false;dragMoved=false;schedule()},true);
- document.addEventListener('pointercancel',()=>{dragStart=null;dragging=false;dragMoved=false;schedule()},true);
+ window.addEventListener('resize',schedule);window.addEventListener('focus',schedule);document.addEventListener('visibilitychange',schedule);document.addEventListener('scroll',schedule,true);
+ const ownsPointer=event=>dragging&&dragStart&&event.pointerId===dragStart.pointerId;
+ const nativeDragging=()=>document.querySelector('.dshwv-root')?.classList?.contains('dshwv-dragging')===true;
+ const finishDrag=(event,commit)=>{
+  if(!ownsPointer(event))return;
+  if(commit&&dragMoved&&dragStart.nativeAccepted&&dragCorner&&Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&(event.clientX!==0||event.clientY!==0))changeCorner('free');
+  dragStart=null;dragging=false;dragMoved=false;schedule();
+ };
+ document.addEventListener('pointerdown',event=>{
+  if(dragging||event.isPrimary===false||event.button!==undefined&&event.button!==0||!event.target.closest?.('.dshwv-img'))return;
+  const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();
+  if(r){
+   dragging=true;dragMoved=false;dragStart={x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY,pointerId:event.pointerId,nativeAccepted:false};
+   schedule();
+  }
+ },true);
+ document.addEventListener('pointermove',event=>{
+  if(!ownsPointer(event))return;
+  if(event.buttons===0){finishDrag(event,true);return}
+  // Only a movement accepted by the original plugin is a drag. Its cursor
+  // handler may remove this class before our buttons=0 callback on return.
+  if(!nativeDragging()){finishDrag(event,false);return}
+  dragStart.nativeAccepted=true;
+  const dx=event.clientX-dragStart.pointerX,dy=event.clientY-dragStart.pointerY;if(dx*dx+dy*dy>=9)dragMoved=true;
+ },true);
+ document.addEventListener('pointerup',event=>finishDrag(event,true),true);
+ document.addEventListener('pointercancel',event=>finishDrag(event,false),true);
+ document.addEventListener('lostpointercapture',schedule,true);
  schedule();
 }
 

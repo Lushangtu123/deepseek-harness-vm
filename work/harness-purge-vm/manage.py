@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-workbench-v29b-20261028'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-workbench-v30-20261028'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_CONFIG_FILES={'.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
@@ -296,11 +296,12 @@ def recovery_path(snapshot):
 
 def file_sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 
-def recovery_catalog():
+def recovery_catalog(after=None):
  """Bounded public metadata only. No SSH, recovery, removal, or VM state changes."""
  validate()
  protected={'ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES[-3:]}
  safe=lambda name:isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}',name) and not any(part in ('','.','..') or part.startswith('.') or re.search(r'credential|secret|token|provider',part,re.I) for part in name.split('/'))
+ if after is not None and (not safe(after) or len(after)>240 or '/' in after):raise ValueError('Invalid archive cursor')
  snapshot_state='observed';snapshots=[];truncated=False
  try:
   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5).stdout)
@@ -318,29 +319,53 @@ def recovery_catalog():
     except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):bundle_state='invalid'
   present=name in actual if snapshot_state=='observed' else None
   snapshots.append({'name':name,'present':present,'current':name==CURRENT_RECOVERY,'protected':name in protected,'reviewCandidate':present is True and name not in protected,'bundleState':bundle_state,'createdAt':created})
- images=[];base=ROOT/'archived-validation';visited=0
- def scan_error(_error):
-  nonlocal truncated
-  truncated=True
+ images=[];base=ROOT/'archived-validation';visited=0;skipped=0;scanned=0;reasons=set();next_cursor=None
+ if truncated:reasons.add('snapshot-limit')
+ deadline=time.monotonic()+2
+ def scan_error(_error):reasons.add('read-error')
+ def add_image(path):
+  key=str(path.relative_to(base))
+  if path.is_symlink() or path.resolve()!=path or not safe(key):return
+  if len(images)>=80:reasons.add('image-limit');return
+  try:info=path.stat()
+  except OSError:reasons.add('read-error');return
+  if stat.S_ISREG(info.st_mode):images.append({'id':key,'logicalBytes':info.st_size,'allocatedBytes':info.st_blocks*512,'reviewCandidate':True})
+ entries=[];remaining=[]
  if base.is_dir() and not base.is_symlink() and base.resolve()==base:
-  for directory,dirs,files in os.walk(base,followlinks=False,onerror=scan_error):
-   visited+=1;parent=Path(directory)
-   dirs[:]=sorted(name for name in dirs if not (parent/name).is_symlink())
-   if visited>512:truncated=True;break
-   if len(parent.relative_to(base).parts)>=5:
-    if dirs:truncated=True
-    dirs[:]=[]
-   for name in sorted(files):
-    if not name.endswith('.qcow2'):continue
-    path=parent/name;key=str(path.relative_to(base))
-    if path.is_symlink() or path.resolve()!=path or not safe(key):continue
-    if len(images)>=80:truncated=True;break
-    try:info=path.stat()
-    except OSError:truncated=True;continue
-    if not stat.S_ISREG(info.st_mode):continue
-    images.append({'id':key,'logicalBytes':info.st_size,'allocatedBytes':info.st_blocks*512,'reviewCandidate':True})
+  try:
+   with os.scandir(base) as listing:
+    for index,entry in enumerate(listing):
+     if index>=512:reasons.add('entry-limit');break
+     if not entry.is_symlink() and len(entry.name)<=240 and safe(entry.name) and (entry.is_dir(follow_symlinks=False) or entry.name.endswith('.qcow2')):entries.append(entry.name)
+  except OSError:reasons.add('read-error')
+  remaining=sorted(name for name in entries if after is None or name>after)
+  for name in remaining[:16]:
+   # A fresh archive belongs to the next page when this page has no budget.
+   # Never advance past an archive whose traversal did not start.
+   if scanned and (visited>=512 or len(images)>=80 or time.monotonic()>=deadline):break
+   path=base/name;scanned+=1
+   if path.is_file():add_image(path)
+   else:
+    for directory,dirs,files in os.walk(path,followlinks=False,onerror=scan_error):
+     parent=Path(directory)
+     if visited>=512:reasons.add('directory-limit');break
+     if time.monotonic()>=deadline:reasons.add('time-limit');break
+     visited+=1
+     # These are metadata siblings of the image, never an image inventory.
+     metadata={'host-tools','launch-agents','__pycache__'} if parent==path else set()
+     skipped+=sum(child in metadata for child in dirs)
+     dirs[:]=sorted(child for child in dirs if child not in metadata and not (parent/child).is_symlink() and safe(str((parent/child).relative_to(base))))
+     if len(parent.relative_to(base).parts)>=5:
+      if dirs:reasons.add('depth-limit')
+      dirs[:]=[]
+     for child in sorted(files):
+      if child.endswith('.qcow2'):add_image(parent/child)
+   if 'directory-limit' in reasons or 'time-limit' in reasons:break
+  if scanned<len(remaining) and scanned:next_cursor=remaining[scanned-1]
+ elif base.exists():reasons.add('invalid-root')
  space=shutil.disk_usage(ROOT);disk=(VM/'Data/ubuntu.qcow2').stat()
- return {'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':truncated,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
+ scan={'entriesScanned':scanned,'entriesRemaining':max(0,len(remaining)-scanned),'visitedDirectories':visited,'skippedMetadataDirectories':skipped,'reasons':sorted(reasons)}
+ return {'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':bool(reasons),'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
 
 def verify_recovery_bundle(snapshot):
  folder=recovery_path(snapshot)
@@ -601,14 +626,14 @@ def restore(confirmed=False,snapshot='ready-original'):
  print('已恢复 '+snapshot+'；恢复前的数据保存在快照 '+backup+'。请重新运行启动入口。')
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');args=parser.parse_args()
  if args.action=='start':start(args.quiet)
  elif args.action=='switch':switch(args.mode,args.quiet)
  elif args.action=='stop':stop()
  elif args.action=='restore':restore(args.confirm_restore,args.snapshot)
  elif args.action=='snapshot-current':create_current_recovery()
  elif args.action=='environment':print(json.dumps(deployment_status()))
- elif args.action=='recoveries':print(json.dumps(recovery_catalog()))
+ elif args.action=='recoveries':print(json.dumps(recovery_catalog(after=args.archive_after)))
  else:validate();print(json.dumps({'vm':UUID,'status':vm_status(),'hostShares':False,'clipboard':False,'usb':False,'network':'Restricted IPv4; only allowlisted public origins through external proxy','originalGuestFullAccessAvailable':True,'hostFullAccess':False},indent=2))
 if __name__=='__main__':
  try:main()

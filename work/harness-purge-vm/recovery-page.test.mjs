@@ -31,3 +31,18 @@ test('Recovery page explains shared allocation, review-only candidates and prote
  for(const text of ['只读','共享','人工','最近三个','恢复点与验收副本'])assert.ok(health.RECOVERY_HTML.includes(text),text);
  assert.ok(!health.RECOVERY_HTML.includes('innerHTML'));
 });
+
+test('Catalog pagination has per-cursor caching and bounded safe cursor forwarding',async()=>{
+ const calls=[];const read=entry.createRecoveryReader({run:async cursor=>{calls.push(cursor);return{stdout:JSON.stringify({...catalog,nextCursor:cursor?'probe-c':'probe-b',archiveScan:{entriesScanned:16,entriesRemaining:20,visitedDirectories:50,skippedMetadataDirectories:16,reasons:[]}})}}});
+ const first=await read();const second=await read('probe-b');await read('probe-b');
+ assert.equal(first.nextCursor,'probe-b');assert.equal(second.nextCursor,'probe-c');assert.deepEqual(calls,['','probe-b']);assert.equal(second.archiveScan.entriesRemaining,20);
+ for(const cursor of ['../outside','a/b','secret-name','x'.repeat(241)])await assert.rejects(async()=>read(cursor));
+});
+test('Recovery HTTP cursor is passed only after the existing local request checks',async()=>{
+ const calls=[];const server=entry.createWebEntry({recoveryReader:async cursor=>{calls.push(cursor);return catalog}});await new Promise(done=>server.listen(0,'127.0.0.1',done));const base='http://127.0.0.1:'+server.address().port;
+ try{
+  for(const suffix of ['?after=../private','?after=a&after=b','?other=x']){const r=await fetch(base+'/__harness/recoveries'+suffix,{headers:{'x-harness-local':'1'}});assert.equal(r.status,400);await r.text()}
+  const denied=await fetch(base+'/__harness/recoveries?after=probe-b');assert.equal(denied.status,403);await denied.text();assert.equal(calls.length,0);
+  const result=await fetch(base+'/__harness/recoveries?after=probe-b',{headers:{'x-harness-local':'1'}});assert.equal(result.status,200);await result.text();assert.deepEqual(calls,['probe-b']);
+ }finally{server.closeAllConnections();await new Promise(done=>server.close(done))}
+});
