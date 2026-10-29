@@ -614,8 +614,9 @@
     "patchesTotal": 63,
     "patchesSkipped": 5,
     "retainedRecoveryPoints": [
-      "ready-merged-capabilities-20261028-r1",
-      "ready-workbench-v30-20261028"
+      "ready-recovery-guard-20261029",
+      "ready-recovery-proof-20261029",
+      "ready-recovery-resume-20261029"
     ]
   },
   "selectiveBackports": {
@@ -637,5 +638,17 @@
       "automatic-profile-insertion",
       "DSH-NEXT-detection"
     ]
+  },
+  "recoveryRetention": {
+    "date": "2026-10-29",
+    "keptSnapshots": [
+      "ready-original",
+      "ready-recovery-guard-20261029",
+      "ready-recovery-proof-20261029",
+      "ready-recovery-resume-20261029",
+      "ready-toolchain-20261025"
+    ],
+    "keptOfflineImages": 1,
+    "historicalSmallVerificationBundlesRetained": true
   }
 }
