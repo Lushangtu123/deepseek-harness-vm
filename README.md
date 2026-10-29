@@ -2,6 +2,10 @@
 
 当前配置：**合并版 · 原版能力按需启用**，更新日期 **2026-10-29（America/Los_Angeles）**。这是专用 Linux VM 的私有配置与代码备份。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
 
+## 统一启动入口
+
+双击仓库根目录的 **Harness.command**，回车默认打开合并版；同一菜单还提供原版能力启停、完整原版独立配置、状态检查、正常关机和恢复。已在目标模式下不会重复切换服务，日常打开保留原版能力开关状态。它调用原Mac已有控制器，移动时保持scripts目录与命令一起。[菜单与确认说明](docs/launcher.md)。
+
 ## 原版能力开关
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。导出时开关关闭，仍使用日常改进版；启用后采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
@@ -63,7 +67,7 @@ node --test work/harness-purge-improved/tests/*.test.mjs
 node --test work/harness-purge-vm/*.test.mjs
 ```
 
-Python 控制器测试使用临时目录和模拟传输；逐个运行 `work/harness-purge-vm/*.test.py`。`work/toolchain-version-checker/tests/` 保存额外的版本检查边界测试。普通备份核对不需要运行控制器的启动、切换或恢复命令。
+Python 控制器测试使用临时目录和模拟传输；逐个运行 `work/harness-purge-vm/*.test.py`；统一启动菜单另运行 `python3 -B scripts/harness_launcher.test.py`（.command路径验收需要本机Homebrew Python）。`work/toolchain-version-checker/tests/` 保存额外的版本检查边界测试。普通备份核对不需要运行控制器的启动、切换或恢复命令。
 
 参见 [本次导出验证范围](docs/verification.md) 和 [恢复与路径说明](docs/restore.md)。上游代码及技能各自保留原来的许可证；本仓库不对第三方代码重新授权。
 
