@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-merged-stability-20261029'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-recovery-guard-20261029'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_CONFIG_FILES={'.config/harness-original-capabilities','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
@@ -296,33 +296,73 @@ def recovery_path(snapshot):
   if path.is_symlink():raise ValueError('Recovery path cannot be a symlink')
  return folder
 
-def file_sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+RECOVERY_JSON_LIMIT=2*1024*1024
+RECOVERY_FILE_LIMIT=8*1024*1024
 
-def recovery_catalog(after=None):
+@contextmanager
+def recovery_source(path,limit):
+ path=Path(path).absolute();launches=Path.home()/'Library/LaunchAgents'
+ anchor=ROOT if path.is_relative_to(ROOT) else Path.home() if path.is_relative_to(launches) else path.parent
+ parts=path.relative_to(anchor).parts
+ if not parts or any(part in ('.','..') for part in parts):raise ValueError('Invalid recovery source path')
+ flags=os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC;directories=[];fd=None
+ try:
+  directory=os.open(anchor,flags|os.O_DIRECTORY);directories.append(directory)
+  for part in parts[:-1]:
+   directory=os.open(part,flags|os.O_DIRECTORY,dir_fd=directory);directories.append(directory)
+  fd=os.open(parts[-1],flags,dir_fd=directory)
+  info=os.fstat(fd)
+  if not stat.S_ISREG(info.st_mode) or info.st_size>limit:raise ValueError('Recovery source must be a bounded regular file')
+  with os.fdopen(fd,'rb',closefd=False) as source:yield source
+ finally:
+  if fd is not None:os.close(fd)
+  for directory in reversed(directories):os.close(directory)
+
+def recovery_json(path):
+ with recovery_source(path,RECOVERY_JSON_LIMIT) as source:raw=source.read(RECOVERY_JSON_LIMIT+1)
+ if len(raw)>RECOVERY_JSON_LIMIT:raise ValueError('Recovery metadata exceeds the size limit')
+ return json.loads(raw)
+
+def file_sha(path,limit=RECOVERY_FILE_LIMIT):
+ digest=hashlib.sha256();size=0
+ with recovery_source(path,limit) as source:
+  while chunk:=source.read(65536):
+   size+=len(chunk)
+   if size>limit:raise ValueError('Recovery source exceeds the size limit')
+   digest.update(chunk)
+ return digest.hexdigest()
+
+def recovery_catalog(after=None,snapshot_after=None):
  """Bounded public metadata only. No SSH, recovery, removal, or VM state changes."""
  validate()
  protected={'ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES[-3:]}
  safe=lambda name:isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}',name) and not any(part in ('','.','..') or part.startswith('.') or re.search(r'credential|secret|token|provider',part,re.I) for part in name.split('/'))
- if after is not None and (not safe(after) or len(after)>240 or '/' in after):raise ValueError('Invalid archive cursor')
- snapshot_state='observed';snapshots=[];truncated=False
+ for cursor in [after,snapshot_after]:
+  if cursor is not None and (not safe(cursor) or len(cursor)>240 or '/' in cursor):raise ValueError('Invalid recovery cursor')
+ snapshot_state='observed';snapshots=[];snapshot_name_limit=False
  try:
   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5).stdout)
-  actual={row.get('name') for row in metadata.get('snapshots',[]) if isinstance(row,dict) and safe(row.get('name')) and '/' not in row['name']}
+  actual={row.get('name') for row in metadata.get('snapshots',[]) if isinstance(row,dict) and safe(row.get('name')) and len(row['name'])<=240 and '/' not in row['name']}
+  snapshot_name_limit=any(isinstance(row,dict) and isinstance(row.get('name'),str) and safe(row['name']) and len(row['name'])>240 and '/' not in row['name'] for row in metadata.get('snapshots',[]))
  except (OSError,ValueError,TypeError,AttributeError,subprocess.SubprocessError):snapshot_state='unavailable';actual=set()
- names=sorted(actual|set(REVIEWED_RECOVERIES))
- if len(names)>80:truncated=True
- for name in names[:80]:
+ names=sorted(actual|set(REVIEWED_RECOVERIES)|protected)
+ pinned=list(dict.fromkeys([CURRENT_RECOVERY,'ready-original','ready-toolchain-20261025',*reversed(REVIEWED_RECOVERIES[-3:])]))
+ pinned=[name for name in pinned if name in names] if snapshot_after is None else []
+ remaining_snapshots=[name for name in names if name not in protected and (snapshot_after is None or name>snapshot_after)]
+ selected=remaining_snapshots[:80-len(pinned)]
+ next_snapshot_cursor=selected[-1] if len(selected)<len(remaining_snapshots) else None
+ for name in [*pinned,*selected]:
   bundle_state='not-reviewed';created=None
   if name in REVIEWED_RECOVERIES:
    bundle_state='missing'
-   if recovery_path(name).exists():
-    try:
+   try:
+    if recovery_path(name).exists():
      _,bundle=verify_recovery_bundle(name);bundle_state='verified';created=bundle.get('createdAt')
-    except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):bundle_state='invalid'
+   except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):bundle_state='invalid'
   present=name in actual if snapshot_state=='observed' else None
   snapshots.append({'name':name,'present':present,'current':name==CURRENT_RECOVERY,'protected':name in protected,'reviewCandidate':present is True and name not in protected,'bundleState':bundle_state,'createdAt':created})
  images=[];base=ROOT/'archived-validation';visited=0;skipped=0;scanned=0;reasons=set();next_cursor=None
- if truncated:reasons.add('snapshot-limit')
+ if snapshot_name_limit:reasons.add('snapshot-name-limit')
  deadline=time.monotonic()+2
  def scan_error(_error):reasons.add('read-error')
  def add_image(path):
@@ -367,14 +407,20 @@ def recovery_catalog(after=None):
  elif base.exists():reasons.add('invalid-root')
  space=shutil.disk_usage(ROOT);disk=(VM/'Data/ubuntu.qcow2').stat()
  scan={'entriesScanned':scanned,'entriesRemaining':max(0,len(remaining)-scanned),'visitedDirectories':visited,'skippedMetadataDirectories':skipped,'reasons':sorted(reasons)}
- return {'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':bool(reasons),'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
+ return {'nextSnapshotCursor':next_snapshot_cursor,'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':bool(reasons),'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
 
 def verify_recovery_bundle(snapshot):
  folder=recovery_path(snapshot)
  manifest=folder/'manifest.json'
  if manifest.is_symlink():raise ValueError('Recovery manifest cannot be a symlink')
- data=json.loads(manifest.read_text())
+ data=recovery_json(manifest)
+ if not isinstance(data,dict):raise ValueError('Recovery manifest must be an object')
  if data.get('vmUUID')!=UUID or data.get('snapshot')!=snapshot:raise ValueError('Recovery identity mismatch')
+ created=data.get('createdAt')
+ if not isinstance(created,str) or len(created)!=20 or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z',created):raise ValueError('Recovery creation time is invalid')
+ time.strptime(created,'%Y-%m-%dT%H:%M:%SZ')
+ if not isinstance(data.get('helpers'),dict) or not isinstance(data.get('launchAgents'),dict):raise ValueError('Recovery inventories must be objects')
+ if any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in [data.get('guestProofSha256'),*data['helpers'].values(),*data['launchAgents'].values()]):raise ValueError('Recovery digest is invalid')
  if set(data.get('helpers',{}))!=RECOVERY_HELPERS:raise ValueError('Recovery helper inventory mismatch')
  expected_jobs={f'{LABEL}.plist',f'{WEB_LABEL}.plist'}
  if set(data.get('launchAgents',{}))!=expected_jobs:raise ValueError('Recovery launch inventory mismatch')
@@ -383,11 +429,13 @@ def verify_recovery_bundle(snapshot):
   for name,digest in data[section].items():
    path=folder/subdir/name
    if path.is_symlink() or file_sha(path)!=digest:raise ValueError('Recovery bundle checksum mismatch')
- if (folder/'guest-proof.json').is_symlink() or file_sha(folder/'guest-proof.json')!=data['guestProofSha256']:raise ValueError('Recovery guest proof checksum mismatch')
+ if (folder/'guest-proof.json').is_symlink():raise ValueError('Recovery proof cannot be a symlink')
+ if file_sha(folder/'guest-proof.json',RECOVERY_JSON_LIMIT)!=data['guestProofSha256']:raise ValueError('Recovery guest proof checksum mismatch')
  return folder,data
 
 def recovery_inventory(proof):
  """Limit coverage to program files and an explicit non-secret tool/config list."""
+ if not isinstance(proof,dict) or not isinstance(proof.get('files'),dict):raise ValueError('Recovery proof inventory must be an object')
  prefix='tools/dsh-purge-personal-1.1.77-personal.1/'
  manifests={RECOVERY_PLUGIN_ROOT+name+'/package.json' for name in RECOVERY_PLUGINS}
  fixed=RECOVERY_TOOL_FILES|RECOVERY_CONFIG_FILES|RECOVERY_RUNTIME_FILES|manifests
@@ -421,17 +469,20 @@ def deployment_status():
  validate()
  recovery={'state':'missing','name':CURRENT_RECOVERY,'scope':'improved-program-tools-config'};expected={};inventory=None
  for name in reversed(REVIEWED_RECOVERIES):
-  if not recovery_path(name).exists():continue
   try:
+   if not recovery_path(name).exists():continue
    folder,bundle=verify_recovery_bundle(name)
-   proof=json.loads((folder/'guest-proof.json').read_text())
+   proof=recovery_json(folder/'guest-proof.json')
    inventory=recovery_inventory(proof);expected=inventory['expected']
    if not inventory['groups']['program']:raise ValueError('Missing program coverage')
    launches=current_launch_inventory();archived=bundle.get('launchAgents',{});helpers=current_host_inventory(verify=False)
    helper_changes=['host-tools/'+name for name in sorted(RECOVERY_HELPERS) if not helpers.get(name) or helpers[name]!=bundle['helpers'].get(name)]
    launch_changes=['host-launch-agents/'+key for key in launches if not launches[key] or launches[key]!=archived.get(key)]
    recovery={'state':'pending','name':name,'createdAt':bundle['createdAt'],'scope':'improved-program-tools-config','helpersMatch':not helper_changes,'launchAgentsMatch':not launch_changes,'uncoveredFiles':inventory['uncovered']}
-   snapshots=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5,helper=folder/'host-tools/qemu-image.py').stdout).get('snapshots',[])
+   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5,helper=folder/'host-tools/qemu-image.py').stdout)
+   if not isinstance(metadata,dict) or not isinstance(metadata.get('snapshots',[]),list):raise ValueError('Invalid disk snapshot metadata')
+   snapshots=metadata.get('snapshots',[])
+   if any(not isinstance(row,dict) or not isinstance(row.get('name'),str) for row in snapshots):raise ValueError('Invalid disk snapshot record')
    if not any(row.get('name')==name for row in snapshots):recovery['state']='missing'
   except (OSError,ValueError,KeyError,subprocess.SubprocessError):recovery={'state':'invalid','name':name,'scope':'improved-program-tools-config'};expected={};inventory=None
   break
@@ -507,7 +558,7 @@ def current_host_inventory(verify=True):
    try:actual[name]=file_sha(path) if path.is_file() and not path.is_symlink() else None
    except OSError:actual[name]=None
   return actual
- hashes=json.loads((ROOT/'host-tools.sha256.json').read_text())
+ hashes=recovery_json(ROOT/'host-tools.sha256.json')
  if set(hashes)!=RECOVERY_HELPERS:raise ValueError('Current helper inventory mismatch')
  if any((TOOLS/name).is_symlink() or file_sha(TOOLS/name)!=digest for name,digest in hashes.items()):raise ValueError('Current host helper checksum mismatch')
  return hashes
@@ -568,7 +619,7 @@ def create_current_recovery():
  if any(row.get('name')==CURRENT_RECOVERY for row in info.get('snapshots',[])):raise ValueError('Snapshot already exists; reconcile before retrying')
  proof=ROOT/('recovery-input-'+CURRENT_RECOVERY+'.json')
  if proof.is_symlink() or not proof.is_file():raise ValueError('Prepared guest recovery proof is required')
- parsed=json.loads(proof.read_text())
+ parsed=recovery_json(proof)
  if parsed.get('vmUUID')!=UUID or parsed.get('mode')!='improved' or parsed.get('recoveryName')!=CURRENT_RECOVERY or not parsed.get('files'):raise ValueError('Invalid guest recovery proof')
  folder.parent.mkdir(mode=0o700,exist_ok=True)
  staging=Path(tempfile.mkdtemp(prefix='.creating-',dir=folder.parent))
@@ -679,7 +730,7 @@ console.log(JSON.stringify(result));
   return result
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');parser.add_argument('--snapshot-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
  if args.action=='start':start(args.quiet)
  elif args.action=='repair-profile':print(json.dumps(repair_profile(apply=args.apply_profile_repair)))
  elif args.action=='switch':switch(args.mode,args.quiet)
@@ -688,7 +739,7 @@ def main():
  elif args.action=='snapshot-current':create_current_recovery()
  elif args.action=='capabilities':print(json.dumps(original_capabilities(args.capability_mode)))
  elif args.action=='environment':print(json.dumps(deployment_status()))
- elif args.action=='recoveries':print(json.dumps(recovery_catalog(after=args.archive_after)))
+ elif args.action=='recoveries':print(json.dumps(recovery_catalog(after=args.archive_after,snapshot_after=args.snapshot_after)))
  else:validate();print(json.dumps({'vm':UUID,'status':vm_status(),'hostShares':False,'clipboard':False,'usb':False,'network':'Restricted IPv4; only allowlisted public origins through external proxy','originalGuestFullAccessAvailable':True,'hostFullAccess':False},indent=2))
 if __name__=='__main__':
  try:main()

@@ -8,29 +8,31 @@ import { createDiagnostics, HEALTH_HTML, ENVIRONMENT_BANNER, RECOVERY_HTML } fro
 
 const executeFile = promisify(execFile)
 const archiveCursor=value=>typeof value==='string'&&value.length<=240&&(value===''||/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(value)&&!/credential|secret|token|provider/i.test(value));
-export function createRecoveryReader({run=after=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'recoveries',...(after?['--archive-after',after]:[])],{timeout:9000,maxBuffer:131072}),now=()=>performance.now(),wallNow=Date.now}={}) {
+export function createRecoveryReader({run=(after,snapshotAfter)=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'recoveries',...(after?['--archive-after',after]:[]),...(snapshotAfter?['--snapshot-after',snapshotAfter]:[])],{timeout:9000,maxBuffer:131072}),now=()=>performance.now(),wallNow=Date.now}={}) {
   const pending=new Map(),cache=new Map()
   const name=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}$/.test(value)&&!value.split('/').some(part=>!part||part==='.'||part==='..'||part.startsWith('.')||/credential|secret|token|provider/i.test(part))
   const number=value=>Number.isSafeInteger(value)&&value>=0?value:null
   const date=value=>typeof value==='string'&&/^[0-9T:Z.+-]{1,40}$/.test(value)&&Number.isFinite(Date.parse(value))?value:null
-  return (after='')=>{
-    if(!archiveCursor(after))return Promise.reject(Error('Invalid archive cursor'))
-    const saved=cache.get(after)
+  return (after='',snapshotAfter='')=>{
+    if(!archiveCursor(after)||!archiveCursor(snapshotAfter))return Promise.reject(Error('Invalid recovery cursor'))
+    const key=JSON.stringify([after,snapshotAfter]),saved=cache.get(key)
     if(saved&&now()-saved.mono>=0&&wallNow()-saved.wall>=0&&now()-saved.mono<5000&&wallNow()-saved.wall<5000)return Promise.resolve(saved.value)
-    if(pending.has(after))return pending.get(after)
+    if(pending.has(key))return pending.get(key)
     if(pending.size>=4)return Promise.reject(Error('Catalog busy'))
-    const request=Promise.resolve().then(()=>run(after)).then(result=>{
+    const request=Promise.resolve().then(()=>run(after,snapshotAfter)).then(result=>{
       const value=JSON.parse(result.stdout)
       if(value.readOnly!==true||!name(value.currentRecovery)||!['observed','unavailable'].includes(value.snapshotState))throw Error('Invalid recovery catalog')
       const snapshots=(Array.isArray(value.snapshots)?value.snapshots:[]).filter(row=>row&&name(row.name)&&!row.name.includes('/')).slice(0,80).map(row=>({name:row.name,present:typeof row.present==='boolean'?row.present:null,current:row.current===true,protected:row.protected===true,reviewCandidate:row.reviewCandidate===true&&!row.protected&&row.present===true,bundleState:['verified','missing','invalid','not-reviewed'].includes(row.bundleState)?row.bundleState:'unknown',createdAt:date(row.createdAt)}))
       const images=(Array.isArray(value.images)?value.images:[]).filter(row=>row&&name(row.id)&&row.id.endsWith('.qcow2')).slice(0,80).map(row=>({id:row.id,logicalBytes:number(row.logicalBytes),allocatedBytes:number(row.allocatedBytes),reviewCandidate:row.reviewCandidate===true}))
       const nextCursor=value.nextCursor??null
       if(nextCursor!==null&&(!archiveCursor(nextCursor)||nextCursor<=after))throw Error('Invalid next archive cursor')
-      const scan=value.archiveScan,archiveScan=scan?{...Object.fromEntries(['entriesScanned','entriesRemaining','visitedDirectories','skippedMetadataDirectories'].map(key=>[key,number(scan[key])])),reasons:[...new Set((Array.isArray(scan.reasons)?scan.reasons:[]).filter(reason=>['snapshot-limit','entry-limit','directory-limit','image-limit','depth-limit','time-limit','read-error','invalid-root'].includes(reason)))]}:null
-      const cached={nextCursor,archiveScan,readOnly:true,currentRecovery:value.currentRecovery,observedAt:date(value.observedAt),snapshotState:value.snapshotState,snapshots,images,storage:Object.fromEntries(['freeBytes','totalBytes','primaryLogicalBytes','primaryAllocatedBytes'].map(key=>[key,number(value.storage?.[key])])),truncated:value.truncated===true||value.snapshots?.length>80||value.images?.length>80}
-      cache.delete(after);cache.set(after,{value:cached,mono:now(),wall:wallNow()});if(cache.size>8)cache.delete(cache.keys().next().value);return cached
-    }).finally(()=>{pending.delete(after)})
-    pending.set(after,request);return request
+      const nextSnapshotCursor=value.nextSnapshotCursor??null
+      if(nextSnapshotCursor!==null&&(!archiveCursor(nextSnapshotCursor)||nextSnapshotCursor<=snapshotAfter))throw Error('Invalid next snapshot cursor')
+      const scan=value.archiveScan,archiveScan=scan?{...Object.fromEntries(['entriesScanned','entriesRemaining','visitedDirectories','skippedMetadataDirectories'].map(key=>[key,number(scan[key])])),reasons:[...new Set((Array.isArray(scan.reasons)?scan.reasons:[]).filter(reason=>['snapshot-limit','snapshot-name-limit','entry-limit','directory-limit','image-limit','depth-limit','time-limit','read-error','invalid-root'].includes(reason)))]}:null
+      const cached={nextCursor,nextSnapshotCursor,archiveScan,readOnly:true,currentRecovery:value.currentRecovery,observedAt:date(value.observedAt),snapshotState:value.snapshotState,snapshots,images,storage:Object.fromEntries(['freeBytes','totalBytes','primaryLogicalBytes','primaryAllocatedBytes'].map(key=>[key,number(value.storage?.[key])])),truncated:value.truncated===true||value.snapshots?.length>80||value.images?.length>80}
+      cache.delete(key);cache.set(key,{value:cached,mono:now(),wall:wallNow()});if(cache.size>8)cache.delete(cache.keys().next().value);return cached
+    }).finally(()=>{pending.delete(key)})
+    pending.set(key,request);return request
   }
 }
 export function createEnvironmentReader({ run = () => executeFile('/opt/homebrew/bin/python3', [fileURLToPath(new URL('./manage.py', import.meta.url)), 'environment'], { timeout: 10000, maxBuffer: 32768 }), now = () => performance.now(), wallNow = Date.now } = {}) {
@@ -265,13 +267,13 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
       if(req.method!=='GET'){res.writeHead(405);res.end();return}
       const json=recoveryPath.endsWith('/recoveries')
       if(req.headers['sec-fetch-site']==='cross-site'||json&&req.headers['x-harness-local']!=='1'){res.writeHead(403);res.end();return}
-      const query=new URL(req.url,entryOrigin()).searchParams,after=query.get('after')??''
-      if([...query.keys()].some(key=>key!=='after')||query.getAll('after').length>1||!archiveCursor(after)||!json&&query.size){res.writeHead(400);res.end();return}
+      const query=new URL(req.url,entryOrigin()).searchParams,after=query.get('after')??'',snapshotAfter=query.get('snapshotAfter')??''
+      if([...query.keys()].some(key=>!['after','snapshotAfter'].includes(key))||['after','snapshotAfter'].some(key=>query.getAll(key).length>1)||!archiveCursor(after)||!archiveCursor(snapshotAfter)||!json&&query.size){res.writeHead(400);res.end();return}
       const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':json?'application/json; charset=utf-8':'text/html; charset=utf-8'}
       if(!json){res.writeHead(200,headers);res.end(RECOVERY_HTML);return}
       let timer
       try{
-        const value=await Promise.race([recoveryReader(after),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('Catalog deadline')),10000)})])
+        const value=await Promise.race([recoveryReader(after,snapshotAfter),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('Catalog deadline')),10000)})])
         if(!res.destroyed){res.writeHead(200,headers);res.end(JSON.stringify(value))}
       }catch{if(!res.destroyed){res.writeHead(503,headers);res.end('{"error":"Recovery catalog unavailable"}')}}
       finally{clearTimeout(timer)}

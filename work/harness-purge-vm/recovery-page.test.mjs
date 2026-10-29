@@ -46,3 +46,21 @@ test('Recovery HTTP cursor is passed only after the existing local request check
   const result=await fetch(base+'/__harness/recoveries?after=probe-b',{headers:{'x-harness-local':'1'}});assert.equal(result.status,200);await result.text();assert.deepEqual(calls,['probe-b']);
  }finally{server.closeAllConnections();await new Promise(done=>server.close(done))}
 });
+
+test('Snapshot continuation has an independent cache key and advancing cursor validation',async()=>{
+ const calls=[];const read=entry.createRecoveryReader({run:async(after,snapshotAfter)=>{calls.push([after,snapshotAfter]);return{stdout:JSON.stringify({...catalog,nextSnapshotCursor:snapshotAfter?'snap-c':'snap-b'})}}});
+ assert.equal((await read()).nextSnapshotCursor,'snap-b');
+ assert.equal((await read('','snap-b')).nextSnapshotCursor,'snap-c');await read('','snap-b');await read('archive-a','snap-b');
+ assert.deepEqual(calls,[['',''],['','snap-b'],['archive-a','snap-b']]);
+ for(const cursor of ['../outside','a/b','token-name','x'.repeat(241)])await assert.rejects(()=>read('',cursor));
+ const invalid=entry.createRecoveryReader({run:async()=>({stdout:JSON.stringify({...catalog,nextSnapshotCursor:'snap-a'})})});await assert.rejects(()=>invalid('','snap-b'));
+});
+
+test('Snapshot HTTP continuation preserves the fixed-origin and local-header boundary',async()=>{
+ const calls=[];const server=entry.createWebEntry({recoveryReader:async(...cursors)=>{calls.push(cursors);return catalog}});await new Promise(done=>server.listen(0,'127.0.0.1',done));const base='http://127.0.0.1:'+server.address().port;
+ try{
+  const denied=await fetch(base+'/__harness/recoveries?snapshotAfter=snap-a');assert.equal(denied.status,403);await denied.text();
+  for(const query of ['snapshotAfter=../outside','snapshotAfter=a&snapshotAfter=b']){const r=await fetch(base+'/__harness/recoveries?'+query,{headers:{'x-harness-local':'1'}});assert.equal(r.status,400);await r.text()}
+  const r=await fetch(base+'/__harness/recoveries?snapshotAfter=snap-a',{headers:{'x-harness-local':'1'}});assert.equal(r.status,200);await r.text();assert.deepEqual(calls,[['','snap-a']]);
+ }finally{server.closeAllConnections();await new Promise(done=>server.close(done))}
+});

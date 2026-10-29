@@ -3,12 +3,15 @@ from pathlib import Path
 from unittest.mock import patch,MagicMock
 spec=importlib.util.spec_from_file_location('catalog_manager',Path(__file__).with_name('manage.py'));m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class RecoveryCatalog(unittest.TestCase):
- def catalog(self,root,snapshots=None,fail=False,real_verify=False,after=None):
+ def catalog(self,root,snapshots=None,fail=False,real_verify=False,after=None,snapshot_after=None):
   (root/'recoveries').mkdir(exist_ok=True)
   image=root/'Harness Purge Original.utm/Data/ubuntu.qcow2';image.parent.mkdir(parents=True,exist_ok=True);image.write_bytes(b'synthetic')
   verify=patch.object(m,'verify_recovery_bundle',wraps=m.verify_recovery_bundle) if real_verify else patch.object(m,'verify_recovery_bundle',return_value=(root,{'createdAt':'2026-10-27T00:00:00Z'}))
   with patch.object(m,'ROOT',root),patch.object(m,'VM',image.parent.parent),patch.object(m,'validate'),patch.object(m,'image_command',side_effect=OSError('private failure') if fail else None,return_value=MagicMock(stdout=json.dumps({'snapshots':snapshots or []}))),verify:
-   return m.recovery_catalog() if after is None else m.recovery_catalog(after=after)
+   options={}
+   if after is not None:options['after']=after
+   if snapshot_after is not None:options['snapshot_after']=snapshot_after
+   return m.recovery_catalog(**options)
  def test_catalog_protects_baselines_and_latest_three_without_deleting(self):
   self.assertTrue(callable(getattr(m,'recovery_catalog',None)),'Missing read-only recovery catalog')
   with tempfile.TemporaryDirectory() as temp:
@@ -93,4 +96,48 @@ class RecoveryCatalog(unittest.TestCase):
     first=self.catalog(root);self.assertEqual(first['nextCursor'],'a-large');self.assertFalse(first['truncated'])
     second=self.catalog(root,after=first['nextCursor']);self.assertIsNone(second['nextCursor']);self.assertFalse(second['truncated'])
     self.assertEqual([row['id'] for row in second['images']],['b-image/disk.qcow2','c-image/disk.qcow2'])
+
+ def test_snapshot_pages_pin_current_and_baselines_then_cover_every_snapshot(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();names=[f'a-extra-{i:03d}' for i in range(165)]+['ready-original','ready-toolchain-20261025',m.CURRENT_RECOVERY]
+   inputs=[{'name':name} for name in names];first=self.catalog(root,inputs)
+   shown={row['name'] for row in first['snapshots']}
+   self.assertIn(m.CURRENT_RECOVERY,shown);self.assertIn('ready-original',shown);self.assertIn('ready-toolchain-20261025',shown)
+   self.assertEqual(first['snapshots'][0]['name'],m.CURRENT_RECOVERY);self.assertFalse(first['truncated'])
+   after=first.get('nextSnapshotCursor');self.assertTrue(after,'Snapshot continuation must be distinct from archive continuation')
+   while after is not None:
+    page=self.catalog(root,inputs,snapshot_after=after);self.assertFalse(page['truncated']);self.assertLessEqual(len(page['snapshots']),80)
+    incoming={row['name'] for row in page['snapshots']};self.assertFalse(shown&incoming);shown|=incoming
+    following=page['nextSnapshotCursor'];self.assertTrue(following is None or following>after);after=following
+   self.assertEqual(shown,set(names)|set(m.REVIEWED_RECOVERIES))
+
+ def test_snapshot_cursor_is_restricted_to_public_names(self):
+  with tempfile.TemporaryDirectory() as temp:
+   for cursor in ['../outside','a/b','.hidden','secret-name','x'*241]:
+    with self.subTest(cursor=cursor):
+     try:self.catalog(Path(temp).resolve(),snapshot_after=cursor)
+     except ValueError:continue
+     except Exception as error:self.fail('Invalid snapshot cursor must be a validation error, got '+type(error).__name__)
+     self.fail('Invalid snapshot cursor accepted')
+
+ def test_missing_baselines_are_still_explained_in_the_first_page(self):
+  with tempfile.TemporaryDirectory() as temp:
+   for fail in [False,True]:
+    result=self.catalog(Path(temp).resolve(),fail=fail);rows={row['name']:row for row in result['snapshots']}
+    for name in ['ready-original','ready-toolchain-20261025']:
+     self.assertIn(name,rows);self.assertEqual(rows[name]['present'],None if fail else False);self.assertTrue(rows[name]['protected'])
+
+ def test_nonpublic_long_snapshot_names_do_not_produce_unusable_cursors(self):
+  with tempfile.TemporaryDirectory() as temp:
+   names=[{'name':'a'*238+f'{i:03d}'} for i in range(100)]
+   result=self.catalog(Path(temp).resolve(),names)
+   self.assertTrue(result['truncated']);self.assertIn('snapshot-name-limit',result['archiveScan']['reasons'])
+   self.assertTrue(result.get('nextSnapshotCursor') is None or len(result['nextSnapshotCursor'])<=240)
+
+ def test_linked_current_recovery_is_an_invalid_row_not_a_failed_catalog(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();folder=root/'recoveries'/m.CURRENT_RECOVERY;folder.parent.mkdir();outside=root/'detached';outside.mkdir();folder.symlink_to(outside,target_is_directory=True)
+   try:result=self.catalog(root,real_verify=True)
+   except ValueError as error:self.fail('Linked recovery escaped row-level validation: '+str(error))
+   row=next(row for row in result['snapshots'] if row['name']==m.CURRENT_RECOVERY);self.assertEqual(row['bundleState'],'invalid')
 if __name__=='__main__':unittest.main()

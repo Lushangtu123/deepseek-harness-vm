@@ -5,7 +5,7 @@ import {RECOVERY_HTML} from './web-health.mjs';
 const page=(id,nextCursor=null,truncated=false)=>({readOnly:true,currentRecovery:'ready-v30',observedAt:'2026-10-29T05:30:00Z',snapshotState:'observed',snapshots:[],images:[{id,logicalBytes:4,allocatedBytes:4}],storage:{freeBytes:10},truncated,nextCursor,archiveScan:{entriesScanned:1,entriesRemaining:nextCursor?1:0,visitedDirectories:3,skippedMetadataDirectories:1,reasons:truncated?['depth-limit']:[]}});
 function fixture(responses){
  const element=()=>({textContent:'',hidden:false,disabled:false,children:[],events:{},appendChild(node){this.children.push(node)},replaceChildren(){this.children=[]},addEventListener(name,fn){this.events[name]=fn}});
- const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more'].map(id=>[id,element()]));
+ const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more','more-snapshots'].map(id=>[id,element()]));
  const urls=[];const context={document:{getElementById:id=>nodes[id],createElement:element},AbortController,URLSearchParams,setTimeout:()=>0,clearTimeout(){},fetch:async url=>{urls.push(url);const result=responses.shift();if(result instanceof Error)throw result;return{ok:true,json:async()=>result}}};
  vm.runInNewContext(RECOVERY_HTML.match(/<script>([\s\S]*)<\/script>/)[1],context);
  return{nodes,urls,async settle(){for(let i=0;i<12;i++)await Promise.resolve()}};
@@ -20,4 +20,22 @@ test('A failed next page retains visible results and the same retry cursor',asyn
  const f=fixture([page('a.qcow2','probe-a'),Error('synthetic unavailable'),page('b.qcow2')]);await f.settle();
  assert.equal(typeof f.nodes.more.events.click,'function');await f.nodes.more.events.click();await f.settle();assert.equal(f.nodes.images.children.length,1);assert.equal(f.nodes.more.disabled,false);
  await f.nodes.more.events.click();await f.settle();assert.equal(f.urls[1],f.urls[2]);assert.equal(f.nodes.images.children.length,2);
+});
+
+test('Snapshot pages append independently of archive pages and keep the pinned first page',async()=>{
+ const first={...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a',snapshots:[{name:'current',present:true,current:true,protected:true,bundleState:'verified'}]};
+ const second={...page('a.qcow2','archive-a'),nextSnapshotCursor:null,snapshots:[{name:'old',present:true,bundleState:'verified'}]};
+ const third={...page('b.qcow2'),nextSnapshotCursor:'snap-a',snapshots:first.snapshots};
+ const f=fixture([first,second,third]);await f.settle();
+ assert.equal(typeof f.nodes['more-snapshots'].events.click,'function','Snapshot list needs its own continuation control');
+ await f.nodes['more-snapshots'].events.click();await f.settle();
+ assert.equal(f.nodes.snapshots.children.length,2);assert.equal(f.nodes['more-snapshots'].hidden,true);assert.equal(f.nodes.images.children.length,1);assert.match(f.urls[1],/snapshotAfter=snap-a/);
+ await f.nodes.more.events.click();await f.settle();assert.equal(f.nodes.snapshots.children.length,2);assert.equal(f.nodes.images.children.length,2);assert.equal(f.nodes['more-snapshots'].hidden,true);assert.equal(f.nodes.more.hidden,true);
+});
+
+test('A failed snapshot continuation preserves rows and retries the same cursor',async()=>{
+ const first={...page('a.qcow2'),nextSnapshotCursor:'snap-a',snapshots:[{name:'current',present:true}]};
+ const f=fixture([first,Error('synthetic unavailable'),{...page('a.qcow2'),snapshots:[{name:'old',present:true}]}]);await f.settle();
+ assert.equal(typeof f.nodes['more-snapshots'].events.click,'function');await f.nodes['more-snapshots'].events.click();await f.settle();assert.equal(f.nodes.snapshots.children.length,1);assert.equal(f.nodes['more-snapshots'].disabled,false);
+ await f.nodes['more-snapshots'].events.click();await f.settle();assert.equal(f.urls[1],f.urls[2]);assert.equal(f.nodes.snapshots.children.length,2);
 });
