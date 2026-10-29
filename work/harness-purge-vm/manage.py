@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-recovery-resume-20261029'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-recovery-proof-20261029'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_CONFIG_FILES={'.config/harness-original-capabilities','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
@@ -342,6 +342,15 @@ def checked_recovery_source(path,digest,limit=RECOVERY_FILE_LIMIT):
  if len(raw)>limit or not isinstance(digest,str) or hashlib.sha256(raw).hexdigest()!=digest:raise ValueError('Recovery source checksum mismatch')
  return raw,mode
 
+def validated_recovery_proof(raw,snapshot,allow_legacy=False):
+ proof=json.loads(raw)
+ if not isinstance(proof,dict) or proof.get('vmUUID')!=UUID or proof.get('mode')!='improved':raise ValueError('Recovery guest proof identity mismatch')
+ legacy=allow_legacy and snapshot=='ready-improved-20261026' and 'recoveryName' not in proof
+ if not legacy and proof.get('recoveryName')!=snapshot:raise ValueError('Recovery guest proof name mismatch')
+ files=proof.get('files')
+ if not isinstance(files,dict) or not files or any(not isinstance(name,str) or not name or not isinstance(digest,str) or not re.fullmatch('[a-f0-9]{64}',digest) for name,digest in files.items()):raise ValueError('Recovery guest proof inventory is invalid')
+ return proof
+
 def prepare_host_bundle(folder,data):
  """Freeze every source before the first write, also for rollback bundles."""
  prepared={}
@@ -412,8 +421,11 @@ def recovery_catalog(after=None,snapshot_after=None):
  snapshot_state='observed';snapshots=[];snapshot_name_limit=False
  try:
   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5).stdout)
-  actual={row.get('name') for row in metadata.get('snapshots',[]) if isinstance(row,dict) and safe(row.get('name')) and len(row['name'])<=240 and '/' not in row['name']}
-  snapshot_name_limit=any(isinstance(row,dict) and isinstance(row.get('name'),str) and safe(row['name']) and len(row['name'])>240 and '/' not in row['name'] for row in metadata.get('snapshots',[]))
+  if not isinstance(metadata,dict) or not isinstance(metadata.get('snapshots',[]),list):raise ValueError('Invalid disk snapshot metadata')
+  records=metadata.get('snapshots',[])
+  if any(not isinstance(row,dict) or not isinstance(row.get('name'),str) or not row['name'] for row in records):raise ValueError('Invalid disk snapshot record')
+  actual={row['name'] for row in records if safe(row['name']) and len(row['name'])<=240 and '/' not in row['name']}
+  snapshot_name_limit=any(safe(row['name']) and len(row['name'])>240 and '/' not in row['name'] for row in records)
  except (OSError,ValueError,TypeError,AttributeError,subprocess.SubprocessError):snapshot_state='unavailable';actual=set()
  names=sorted(actual|set(REVIEWED_RECOVERIES)|protected)
  pinned=list(dict.fromkeys([CURRENT_RECOVERY,'ready-original','ready-toolchain-20261025',*reversed(REVIEWED_RECOVERIES[-3:])]))
@@ -504,7 +516,8 @@ def verify_recovery_bundle(snapshot):
    path=folder/subdir/name
    if path.is_symlink() or file_sha(path)!=digest:raise ValueError('Recovery bundle checksum mismatch')
  if (folder/'guest-proof.json').is_symlink():raise ValueError('Recovery proof cannot be a symlink')
- if file_sha(folder/'guest-proof.json',RECOVERY_JSON_LIMIT)!=data['guestProofSha256']:raise ValueError('Recovery guest proof checksum mismatch')
+ proof,_mode=checked_recovery_source(folder/'guest-proof.json',data['guestProofSha256'],RECOVERY_JSON_LIMIT)
+ validated_recovery_proof(proof,snapshot,allow_legacy=True)
  return folder,data
 
 def recovery_inventory(proof):
@@ -694,13 +707,14 @@ def create_current_recovery():
  if any(row.get('name')==CURRENT_RECOVERY for row in info.get('snapshots',[])):raise ValueError('Snapshot already exists; reconcile before retrying')
  proof=ROOT/('recovery-input-'+CURRENT_RECOVERY+'.json')
  if proof.is_symlink() or not proof.is_file():raise ValueError('Prepared guest recovery proof is required')
- parsed=recovery_json(proof)
- if parsed.get('vmUUID')!=UUID or parsed.get('mode')!='improved' or parsed.get('recoveryName')!=CURRENT_RECOVERY or not parsed.get('files'):raise ValueError('Invalid guest recovery proof')
+ with recovery_source(proof,RECOVERY_JSON_LIMIT) as source:proof_bytes=source.read(RECOVERY_JSON_LIMIT+1)
+ if len(proof_bytes)>RECOVERY_JSON_LIMIT:raise ValueError('Recovery metadata exceeds the size limit')
+ validated_recovery_proof(proof_bytes,CURRENT_RECOVERY)
  folder.parent.mkdir(mode=0o700,exist_ok=True)
  staging=Path(tempfile.mkdtemp(prefix='.creating-',dir=folder.parent))
  data=copy_host_bundle(staging)
- shutil.copy2(proof,staging/'guest-proof.json')
- data.update({'snapshot':CURRENT_RECOVERY,'guestProofSha256':file_sha(staging/'guest-proof.json'),'createdAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+ atomic_recovery_write(staging/'guest-proof.json',proof_bytes)
+ data.update({'snapshot':CURRENT_RECOVERY,'guestProofSha256':hashlib.sha256(proof_bytes).hexdigest(),'createdAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
  image_command(['check',image],timeout=90)
  image_command(['snapshot','-c',CURRENT_RECOVERY,image],timeout=90)
  image_command(['check',image],timeout=90)

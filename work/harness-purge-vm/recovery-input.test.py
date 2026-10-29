@@ -14,7 +14,7 @@ class RecoveryInput(unittest.TestCase):
    data=('synthetic '+name).encode();(folder/'host-tools'/name).write_bytes(data);helpers[name]=hashlib.sha256(data).hexdigest()
   for label in [m.LABEL,m.WEB_LABEL]:
    data=b'synthetic launch';name=label+'.plist';(folder/'launch-agents'/name).write_bytes(data);jobs[name]=hashlib.sha256(data).hexdigest()
-  proof={'files':{'tools/dsh-purge-personal-1.1.77-personal.1/client.js':'a'*64}}
+  proof={'vmUUID':m.UUID,'mode':'improved','recoveryName':m.CURRENT_RECOVERY,'files':{'tools/dsh-purge-personal-1.1.77-personal.1/client.js':'a'*64}}
   raw=json.dumps(proof).encode();(folder/'guest-proof.json').write_bytes(raw)
   manifest={'vmUUID':m.UUID,'snapshot':m.CURRENT_RECOVERY,'createdAt':'2026-10-29T00:00:00Z','helpers':helpers,'launchAgents':jobs,'guestProofSha256':hashlib.sha256(raw).hexdigest()}
   (folder/'manifest.json').write_text(json.dumps(manifest))

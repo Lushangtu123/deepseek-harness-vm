@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-recovery-resume-personal2",
+  "configuration": "merged-recovery-proof-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -463,7 +463,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-recovery-resume-20261029",
+  "recoveryPoint": "ready-recovery-proof-20261029",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",

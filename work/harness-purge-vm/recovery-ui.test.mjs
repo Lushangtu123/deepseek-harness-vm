@@ -63,3 +63,32 @@ test('Snapshot pagination keeps archive failure status and archive observation t
  assert.match(f.nodes.error.textContent,/归档.*失败/);assert.equal(f.nodes['snap-count'].textContent,'2');
  assert.equal(f.nodes.images.children.length,1);
 });
+
+test('First request failure never presents either list as complete or empty',async()=>{
+ const f=fixture([Error('synthetic unavailable')]);await f.settle();
+ assert.match(f.nodes.error.textContent,/快照读取失败/);assert.match(f.nodes.error.textContent,/归档读取失败/);
+ assert.doesNotMatch(f.nodes.status.textContent,/已读取完/);assert.match(f.nodes.status.textContent,/尚未取得清单/);
+ assert.equal(f.nodes.refresh.disabled,false);assert.equal(f.nodes.snapshots.children.length,0);assert.equal(f.nodes.images.children.length,0);
+});
+
+test('A pending initial request is loading, and a successful retry is complete',async()=>{
+ let resolve;const pending=new Promise(done=>{resolve=done});const f=fixture([pending]);await f.settle();
+ assert.match(f.nodes.status.textContent,/正在读取/);assert.doesNotMatch(f.nodes.status.textContent,/已读取完/);
+ resolve(page('a.qcow2'));await f.settle();assert.match(f.nodes.status.textContent,/已读取完/);assert.equal(f.nodes['image-count'].textContent,'1');
+});
+
+test('Retry after initial failure replaces failure with a confirmed successful list',async()=>{
+ const f=fixture([Error('synthetic unavailable'),page('a.qcow2')]);await f.settle();await f.nodes.refresh.events.click();await f.settle();
+ assert.equal(f.nodes.error.textContent,'');assert.equal(f.nodes['image-count'].textContent,'1');assert.match(f.nodes.status.textContent,/已读取完/);
+});
+
+test('Unknown snapshot metadata and archive gaps cannot claim complete lists',async()=>{
+ const f=fixture([{...page('a.qcow2',null,true),snapshotState:'unavailable',snapshots:[{name:'baseline',present:null}]}]);await f.settle();
+ assert.doesNotMatch(f.nodes.status.textContent,/已读取完/);assert.match(f.nodes.status.textContent,/快照读取未确认/);assert.match(f.nodes.status.textContent,/清单仍有缺口/);
+});
+
+test('Failed refresh keeps the previous partial lists and their retry positions',async()=>{
+ const f=fixture([{...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a'},Error('synthetic refresh failure'),page('b.qcow2')]);await f.settle();
+ await f.nodes.refresh.events.click();await f.settle();assert.equal(f.nodes.images.children.length,1);assert.equal(f.nodes.more.hidden,false);assert.doesNotMatch(f.nodes.status.textContent,/已读取完/);
+ await f.nodes.more.events.click();await f.settle();assert.match(f.urls[2],/after=archive-a/);assert.equal(f.nodes.images.children.length,2);assert.match(f.nodes.error.textContent,/快照读取失败/);
+});

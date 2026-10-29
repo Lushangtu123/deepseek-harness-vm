@@ -3,11 +3,11 @@ from pathlib import Path
 from unittest.mock import patch,MagicMock
 spec=importlib.util.spec_from_file_location('catalog_manager',Path(__file__).with_name('manage.py'));m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class RecoveryCatalog(unittest.TestCase):
- def catalog(self,root,snapshots=None,fail=False,real_verify=False,after=None,snapshot_after=None):
+ def catalog(self,root,snapshots=None,fail=False,real_verify=False,after=None,snapshot_after=None,metadata_text=None):
   (root/'recoveries').mkdir(exist_ok=True)
   image=root/'Harness Purge Original.utm/Data/ubuntu.qcow2';image.parent.mkdir(parents=True,exist_ok=True);image.write_bytes(b'synthetic')
   verify=patch.object(m,'verify_recovery_bundle',wraps=m.verify_recovery_bundle) if real_verify else patch.object(m,'verify_recovery_bundle',return_value=(root,{'createdAt':'2026-10-27T00:00:00Z'}))
-  with patch.object(m,'ROOT',root),patch.object(m,'VM',image.parent.parent),patch.object(m,'validate'),patch.object(m,'image_command',side_effect=OSError('private failure') if fail else None,return_value=MagicMock(stdout=json.dumps({'snapshots':snapshots or []}))),verify:
+  with patch.object(m,'ROOT',root),patch.object(m,'VM',image.parent.parent),patch.object(m,'validate'),patch.object(m,'image_command',side_effect=OSError('private failure') if fail else None,return_value=MagicMock(stdout=metadata_text if metadata_text is not None else json.dumps({'snapshots':snapshots or []}))),verify:
    options={}
    if after is not None:options['after']=after
    if snapshot_after is not None:options['snapshot_after']=snapshot_after
@@ -38,6 +38,14 @@ class RecoveryCatalog(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    result=self.catalog(Path(temp).resolve(),fail=True)
    self.assertEqual(result['snapshotState'],'unavailable');self.assertNotIn('private failure',json.dumps(result))
+ def test_malformed_snapshot_structure_is_unknown_instead_of_empty(self):
+  for value in [None,[],4,{'snapshots':{}},{'snapshots':'bad'},{'snapshots':3},{'snapshots':None},{'snapshots':[None]},{'snapshots':[{'name':None}]},{'snapshots':[{'name':'ready-original'},{}]}]:
+   with self.subTest(value=value),tempfile.TemporaryDirectory() as temp:
+    result=self.catalog(Path(temp).resolve(),metadata_text=json.dumps(value));self.assertEqual(result['snapshotState'],'unavailable');self.assertTrue(all(row['present'] is None and not row['reviewCandidate'] for row in result['snapshots']))
+ def test_valid_empty_or_omitted_snapshot_array_remains_an_observed_empty_disk(self):
+  for value in [{'snapshots':[]},{'format':'qcow2'},{'snapshots':[{'name':'ready-original','id':'1'}]}]:
+   with self.subTest(value=value),tempfile.TemporaryDirectory() as temp:
+    result=self.catalog(Path(temp).resolve(),metadata_text=json.dumps(value));self.assertEqual(result['snapshotState'],'observed');row=next(row for row in result['snapshots'] if row['name']=='ready-original');self.assertEqual(row['present'],bool(value.get('snapshots')))
  def test_depth_and_read_error_limits_explicitly_mark_partial_results(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp).resolve();deep=root/'archived-validation/a/b/c/d/e/f/image.qcow2';deep.parent.mkdir(parents=True);deep.write_bytes(b'deep')
