@@ -23,3 +23,19 @@
   config:
     profile: web
     allowRestart: false
+- id: web-search-deepseek
+  name: "@deepseek-ai/dsh-web-search-deepseek"
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    maxUses: 10
+    baseURL: https://api.deepseek.com/v1/tools
+- id: web
+  name: "@deepseek-ai/dsh-web"
+  config:
+    searchProvider: deepseek-search-api
+    fetchProvider: deepseek-fetch-api
+- id: web-deepseek-api
+  name: "@deepseek-ai/dsh-web-deepseek-api"
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    count: 50

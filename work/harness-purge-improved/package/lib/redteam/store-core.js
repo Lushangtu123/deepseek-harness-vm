@@ -7,13 +7,13 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { connect as tcpConnect } from 'node:net'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { redactDisplay } from './personal-evidence-redaction.mjs'
 import { SessionBindings } from './personal-session-bindings.mjs'
 import {
   mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, statSync,
-  copyFileSync,
+  copyFileSync, openSync, closeSync, fsyncSync, fstatSync, lstatSync, unlinkSync, mkdtempSync, linkSync,
 } from 'node:fs'
 import { join, basename, isAbsolute } from 'node:path'
 
@@ -65,6 +65,44 @@ export {
   scoreMultiplierOf, SENSITIVE_DATA_MIN_ROWS, parseRowCount, formatRows,
   DEDUP_SCOPES, SCORE_GENERAL_RULES, SCORE_GROUPS, DEFAULT_SCORE_POINTS, scoreConfirmOf, SCORE_CONFIRM,
   normalizePort, targetAuthority, systemKeyOf, pickBestHit, legacyCapGroup, targetHasIpv6Host,
+}
+
+// Savepoints preserve an outer caller transaction. The first write in a seed
+// operation takes the write lock before reading decisions used by later writes.
+function seedTransaction(db, name, action) {
+  db.exec('SAVEPOINT ' + name)
+  try {
+    const value = action()
+    db.exec('RELEASE ' + name)
+    return value
+  } catch (error) {
+    try { db.exec('ROLLBACK TO ' + name); db.exec('RELEASE ' + name) }
+    catch (rollback) { throw new AggregateError([error, rollback], '初始化失败且数据库回滚未确认') }
+    throw error
+  }
+}
+
+function archiveLegacyScores(project, points, hits) {
+  const dir = join(project, 'runs')
+  let stage
+  try {
+    mkdirSync(dir, { recursive: true })
+    const stat = lstatSync(dir)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('归档位置必须是真实目录')
+    stage = mkdtempSync(join(dir, '.legacy-score-'))
+    const pending = join(stage, 'archive.json')
+    const raw = Buffer.from(JSON.stringify({ archived_at: nowIso(), reason: '按《突破入侵类得分规则（合并版）》重构：旧得分项整套作废', points, hits }, null, 2))
+    const fd = openSync(pending, 'wx', 0o600)
+    try { writeFileSync(fd, raw); fsyncSync(fd) } finally { closeSync(fd) }
+    if (!readFileSync(pending).equals(raw)) throw new Error('归档读回校验失败')
+    const target = join(dir, 'legacy-score-' + nowIso().replace(/[:.]/g, '-') + '-' + randomUUID() + '.json')
+    // Publish without replacing any previous archive, then persist its directory entry.
+    linkSync(pending, target)
+    const parent = openSync(dir, 'r')
+    try { fsyncSync(parent) } finally { closeSync(parent) }
+    return target
+  } catch (error) { throw new Error('旧得分归档失败，已保留原记录：' + error.message, { cause: error }) }
+  finally { if (stage) rmSync(stage, { recursive: true, force: true }) }
 }
 
 /* ------------------------------------------------------------------ 角色与枚举 */
@@ -1424,20 +1462,21 @@ export class RedteamStore {
   /** 作战阶段：首次读取时补种默认五阶段（与得分点同策略，老靶标自动获得）。 */
   seedStages(id) {
     const db = this.db(id)
-    /* 自愈式补种：缺哪个补哪个（老库被上一版迁移误删的阶段会自动补回来） */
-    const have = new Set(db.prepare('SELECT code FROM stage').all().map((r) => r.code))
-    if (DEFAULT_STAGES.every((st) => have.has(st.code))) return { seeded: 0 }
-    let order = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS n FROM stage').get().n + 1
-    const stmt = db.prepare(`INSERT INTO stage(code, name, subtitle, color, goal, sections, tools, transition, sort_order, updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`)
-    let seeded = 0
-    for (const st of DEFAULT_STAGES) {
-      if (have.has(st.code)) continue
-      stmt.run(st.code, st.name, st.subtitle, st.color, st.goal, JSON.stringify(st.sections),
-        st.tools, st.transition, order++, nowIso())
-      seeded += 1
-    }
-    return { seeded: seeded }
+    const have = new Set(db.prepare('SELECT code FROM stage').all().map(row => row.code))
+    if (DEFAULT_STAGES.every(stage => have.has(stage.code))) return { seeded: 0 }
+    return seedTransaction(db, 'personal_seed_stages', () => {
+      /* 自愈式补种：缺哪个补哪个（老库被上一版迁移误删的阶段会自动补回来） */
+      const stmt = db.prepare(`INSERT INTO stage(code, name, subtitle, color, goal, sections, tools, transition, sort_order, updated_at)
+        VALUES(?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM stage),?)
+        ON CONFLICT(code) DO NOTHING`)
+      let seeded = 0
+      for (const st of DEFAULT_STAGES) {
+        const result = stmt.run(st.code, st.name, st.subtitle, st.color, st.goal, JSON.stringify(st.sections),
+          st.tools, st.transition, nowIso())
+        seeded += Number(result.changes)
+      }
+      return { seeded: seeded }
+    })
   }
 
   listStages(id) {
@@ -1480,113 +1519,96 @@ export class RedteamStore {
 
   seedScorePoints(id) {
     const db = this.db(id)
-    const insert = (point, order) => db.prepare(`INSERT INTO score_point
-        (code, name, category, points, description, enabled, sort_order, created_at, updated_at,
-         src, rule, tier, cap, dedup_scope, legacy, builtin)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      point.code, point.name, point.category, point.points, point.description,
-      point.enabled === 0 ? 0 : 1, order, nowIso(), nowIso(),
-      point.src ?? null,
-      point.rule ?? null, point.tier ?? null, point.cap ?? 0, point.dedup_scope || 'service', point.legacy === 1 ? 1 : 0,
-      /* 内置点：随规则分发，分值/口径锁定、不可删除 */
-      point.legacy === 1 ? 0 : 1,
-    )
-    const have = new Set(db.prepare('SELECT code FROM score_point').all().map((r) => String(r.code)))
+    return seedTransaction(db, 'personal_seed_scores', () => {
+      const insert = (point, order) => db.prepare(`INSERT INTO score_point
+          (code, name, category, points, description, enabled, sort_order, created_at, updated_at,
+           src, rule, tier, cap, dedup_scope, legacy, builtin)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(code) DO NOTHING`).run(
+        point.code, point.name, point.category, point.points, point.description,
+        point.enabled === 0 ? 0 : 1, order, nowIso(), nowIso(),
+        point.src ?? null,
+        point.rule ?? null, point.tier ?? null, point.cap ?? 0, point.dedup_scope || 'service', point.legacy === 1 ? 1 : 0,
+        /* 内置点：随规则分发，分值/口径锁定、不可删除 */
+        point.legacy === 1 ? 0 : 1,
+      )
 
-    /* ── 内置点标记回填 + 老库清理（旧得分项整套作废）────────────────────────
-       回填：老库的 builtin 列刚建出来全是 0，按 code 名单把内置点标回来。
-       清理口径：**只清"内置名单里的旧 code"**——也就是旧版随包分发的默认点
-       （web-account-* / webshell / rce / server-shell / db-access / sensitive-data /
-       boundary / internal-pivot / core-system 等）与其历史命中。
+      /* ── 内置点标记回填 + 老库清理（旧得分项整套作废）────────────────────────
+         回填：老库的 builtin 列刚建出来全是 0，按 code 名单把内置点标回来。
+         清理口径：**只清"内置名单里的旧 code"**——也就是旧版随包分发的默认点
+         （web-account-* / webshell / rce / server-shell / db-access / sensitive-data /
+         boundary / internal-pivot / core-system 等）与其历史命中。
 
-       ⚠️ 判定"是否内置"**必须用 builtin 列**，不能用"是否在当前默认名单里"：
-       用户自建的得分点会被当成旧体系残留，在下次读取得分面板时连同命中一起静默删除，
-       而 saveScorePoint 照样返回 ok、界面照样弹「已保存」。
+         ⚠️ 判定"是否内置"**必须用 builtin 列**，不能用"是否在当前默认名单里"：
+         用户自建的得分点会被当成旧体系残留，在下次读取得分面板时连同命中一起静默删除，
+         而 saveScorePoint 照样返回 ok、界面照样弹「已保存」。
 
-       ⚠️ 不可逆：清理前把被删的得分点与命中**导出到 <靶标>/runs/legacy-score-<时间>.json**
-       存档一次（报告/审计还能查），然后才删。 */
-    const builtinCodes = DEFAULT_SCORE_POINTS.map((x) => x.code)
-    const keep = new Set(builtinCodes)
-    try {
+         ⚠️ 不可逆：清理前把被删的得分点与命中**导出到 <靶标>/runs/legacy-score-<时间>.json**
+         存档一次（报告/审计还能查），然后才删。 */
+      const builtinCodes = DEFAULT_SCORE_POINTS.map((x) => x.code)
+      const keep = new Set(builtinCodes)
       const ph = builtinCodes.map(() => '?').join(',')
       db.prepare('UPDATE score_point SET builtin = 1 WHERE code IN (' + ph + ')').run(...builtinCodes)
-    } catch { /* 老库结构异常：不影响计分，下次播种再试 */ }
-    let purgedPoints = 0
-    let purgedHits = 0
-    try {
-      const doomed = db.prepare('SELECT id, code, name, category, points, legacy, builtin FROM score_point').all()
+      const have = new Set(db.prepare('SELECT code FROM score_point').all().map((r) => String(r.code)))
+      let purgedPoints = 0
+      let purgedHits = 0
+      const doomed = db.prepare('SELECT * FROM score_point').all()
         .filter((r) => !keep.has(String(r.code)) && (Number(r.legacy) === 1 || Number(r.builtin) === 1))
       if (doomed.length > 0) {
         const ids = doomed.map((r) => r.id)
         const ph = ids.map(() => '?').join(',')
         const hits = db.prepare(`SELECT * FROM score_hit WHERE point_id IN (${ph})`).all(...ids)
-        if (hits.length > 0) {
-          /* 存档：放靶标目录的 runs/ 下，与其它证据同处一地 */
-          try {
-            const dir = join(this.dirOf(id), 'runs')
-            mkdirSync(dir, { recursive: true })
-            const stamp = nowIso().replace(/[:.]/g, '-')
-            writeFileSync(join(dir, 'legacy-score-' + stamp + '.json'),
-              JSON.stringify({
-                archived_at: nowIso(),
-                reason: '按《突破入侵类得分规则（合并版）》重构：旧得分项整套作废',
-                points: doomed, hits,
-              }, null, 2), 'utf8')
-          } catch { /* 存档失败不阻断清理，但要照实记账 */ }
-        }
+        archiveLegacyScores(this.dirOf(id), doomed, hits)
         db.prepare(`DELETE FROM score_hit WHERE point_id IN (${ph})`).run(...ids)
         db.prepare(`DELETE FROM score_point WHERE id IN (${ph})`).run(...ids)
         purgedPoints = doomed.length
         purgedHits = hits.length
       }
-    } catch { /* 表还不存在等异常：忽略，不阻断播种 */ }
 
-    /* 内置得分点的**规则元数据同步**：规则文档改了（类别分组、上限、计分口径、档位说明、
-       条款正文），这里要把它同步到已存在的行上。
-       为什么必须做：早先只按 code"缺哪条补哪条"，于是改过 category 的条目在老库里
-       仍留着旧值 —— 面板会按 category 分组，结果同一类被拆成两组
-       （如 NETINFRA 与"网络基础设施"各一组），看起来像多了两个类别。
+      /* 内置得分点的**规则元数据同步**：规则文档改了（类别分组、上限、计分口径、档位说明、
+         条款正文），这里要把它同步到已存在的行上。
+         为什么必须做：早先只按 code"缺哪条补哪条"，于是改过 category 的条目在老库里
+         仍留着旧值 —— 面板会按 category 分组，结果同一类被拆成两组
+         （如 NETINFRA 与"网络基础设施"各一组），看起来像多了两个类别。
 
-       ⚠️ 分值/上限/口径**由规则锁定**（builtin=1），用户改不动：这不仅是"有意覆盖"，
-       更是**必须**——同一 rule 的 cap 按规则内所有点累计，若允许改单条分值，
-       用户把 50 改成 500 就能让整条规则的上限被一条命中吃掉。
-       所以内置点的 name/category/description 与整组 rule/tier/cap/dedup_scope/points
-       都由这里统一同步；**「启用/停用」仍由用户控制，不在此覆盖**。
-       UI 侧据此把内置点的分值输入框置灰（返回 overridden:false 让界面能提示原因）。
+         ⚠️ 分值/上限/口径**由规则锁定**（builtin=1），用户改不动：这不仅是"有意覆盖"，
+         更是**必须**——同一 rule 的 cap 按规则内所有点累计，若允许改单条分值，
+         用户把 50 改成 500 就能让整条规则的上限被一条命中吃掉。
+         所以内置点的 name/category/description 与整组 rule/tier/cap/dedup_scope/points
+         都由这里统一同步；**「启用/停用」仍由用户控制，不在此覆盖**。
+         UI 侧据此把内置点的分值输入框置灰（返回 overridden:false 让界面能提示原因）。
 
-       用户想自定义分值时请**新增得分点**（builtin=0）——那条不会被这里覆盖，
-       也不会被上面的旧体系清理删掉。 */
-    let synced = 0
-    if (have.size > 0) {
-      const upd = db.prepare(`UPDATE score_point SET name = ?, category = ?, points = ?, description = ?,
-          src = ?, rule = ?, tier = ?, cap = ?, dedup_scope = ?, builtin = 1, updated_at = ?
-        WHERE code = ? AND legacy = 0`)
-      for (const point of DEFAULT_SCORE_POINTS) {
-        if (!have.has(point.code)) continue
-        try {
+         用户想自定义分值时请**新增得分点**（builtin=0）——那条不会被这里覆盖，
+         也不会被上面的旧体系清理删掉。 */
+      let synced = 0
+      if (have.size > 0) {
+        const upd = db.prepare(`UPDATE score_point SET name = ?, category = ?, points = ?, description = ?,
+            src = ?, rule = ?, tier = ?, cap = ?, dedup_scope = ?, builtin = 1, updated_at = ?
+          WHERE code = ? AND legacy = 0`)
+        for (const point of DEFAULT_SCORE_POINTS) {
+          if (!have.has(point.code)) continue
           const r = upd.run(point.name, point.category, point.points, point.description,
             point.src ?? null,
             point.rule ?? null, point.tier ?? null, point.cap ?? 0, point.dedup_scope || 'service',
             nowIso(), point.code)
           if (r.changes > 0) synced += 1
-        } catch { /* 忽略单条失败 */ }
+        }
       }
-    }
 
-    /* 缺哪条补哪条：新增规则、被误删的默认点都能靠这一条自愈 */
-    const missing = DEFAULT_SCORE_POINTS.filter((p) => !have.has(p.code))
-    if (missing.length > 0) {
-      let order = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM score_point').get().n
-      for (const point of missing) insert(point, order++)
-    }
-    if (missing.length === 0 && purgedPoints === 0 && synced === 0) return { seeded: 0 }
-    return {
-      seeded: missing.length,
-      /* 本次清掉的旧得分点与命中条数（面板/工具据此告诉用户"旧口径已作废"） */
-      purgedLegacyPoints: purgedPoints,
-      purgedLegacyHits: purgedHits,
-      purged: purgedPoints > 0,
-    }
+      /* 缺哪条补哪条：新增规则、被误删的默认点都能靠这一条自愈 */
+      const missing = DEFAULT_SCORE_POINTS.filter((p) => !have.has(p.code))
+      if (missing.length > 0) {
+        let order = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM score_point').get().n
+        for (const point of missing) insert(point, order++)
+      }
+      if (missing.length === 0 && purgedPoints === 0 && synced === 0) return { seeded: 0 }
+      return {
+        seeded: missing.length,
+        /* 本次清掉的旧得分点与命中条数（面板/工具据此告诉用户"旧口径已作废"） */
+        purgedLegacyPoints: purgedPoints,
+        purgedLegacyHits: purgedHits,
+        purged: purgedPoints > 0,
+      }
+    })
   }
 
   listScorePoints(id, f = {}) {
@@ -4307,12 +4329,14 @@ export class RedteamStore {
     const stamp = String(shot.captured_at || new Date().toISOString()).replace(/[-:T]/g, '').slice(0, 14)
     const slug = String(shot.point_code || 'shot').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'shot'
     let file = String(shot.file || '').trim().replace(/[/\\]/g, '-')
+    const explicitFile = file !== ''
+    let n = 1
+    const nextFile = () => stamp + '-' + slug + '-' + String(n++).padStart(2, '0') + '.' + ext
     if (file === '') {
-      let n = 1
-      do { file = stamp + '-' + slug + '-' + String(n).padStart(2, '0') + '.' + ext; n += 1 }
+      do { file = nextFile() }
       while (existsSync(join(dir, file)))
     }
-    const dest = assertPathWithin(join(dir, file), [dir])
+    let dest = assertPathWithin(join(dir, file), [dir])
     let buf = null
     if (typeof shot.data_base64 === 'string' && shot.data_base64.trim() !== '') {
       buf = Buffer.from(shot.data_base64.replace(/^data:[^,]+,/, ''), 'base64')
@@ -4324,7 +4348,6 @@ export class RedteamStore {
       throw new Error('shot path or data_base64 required')
     }
     if (buf.length === 0) throw new Error('shot file is empty')
-    writeFileSync(dest, buf)
     const mime = /^\x89PNG/.test(buf.slice(0, 4).toString('latin1')) ? 'image/png'
       : (buf.slice(0, 2).toString('latin1') === '\xff\xd8' ? 'image/jpeg'
         : (buf.slice(0, 4).toString('latin1') === 'RIFF' ? 'image/webp' : 'application/octet-stream'))
@@ -4336,25 +4359,51 @@ export class RedteamStore {
       return row === undefined ? null : Number(row.id)
     })()
     const now = nowIso()
-    const cur = db.prepare(`INSERT INTO shot (point_id, hit_id, asset_id, vuln_id, target, label, note,
-        file, kind, mime, bytes, width, height, sha256, source_ref, captured_at, found_by_agent, agent, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      pointId,
-      shot.hit_id === undefined || shot.hit_id === null ? null : Number(shot.hit_id),
-      shot.asset_id === undefined || shot.asset_id === null ? null : Number(shot.asset_id),
-      shot.vuln_id === undefined || shot.vuln_id === null ? null : Number(shot.vuln_id),
-      String(shot.target || '').trim() || null,
-      String(shot.label || '').trim() || null,
-      String(shot.note || '').trim() || null,
-      file, kind, mime, buf.length, dim.width, dim.height,
-      createHash('sha256').update(buf).digest('hex'),
-      String(shot.source_ref || shot.path || '').trim() || null,
-      String(shot.captured_at || now).trim(),
-      String(shot.agent || '').trim() || null,
-      String(shot.agent || '').trim() || null,
-      now,
-    )
-    return { ok: true, id: Number(cur.lastInsertRowid), file: file, kind: kind, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') }
+    let fd, owned
+    for (;;) {
+      if (db.prepare('SELECT id FROM shot WHERE file = ?').get(file)) {
+        if (explicitFile) throw new Error('截图文件名已登记，请使用其他文件名：' + file)
+        file = nextFile(); dest = assertPathWithin(join(dir, file), [dir]); continue
+      }
+      try { fd = openSync(dest, 'wx', 0o600); break }
+      catch (error) {
+        if (error.code !== 'EEXIST') throw error
+        if (explicitFile) throw new Error('截图文件已存在，请使用其他文件名：' + file, { cause: error })
+        file = nextFile(); dest = assertPathWithin(join(dir, file), [dir])
+      }
+    }
+    try {
+      owned = fstatSync(fd)
+      writeFileSync(fd, buf); fsyncSync(fd); closeSync(fd); fd = undefined
+      const cur = db.prepare(`INSERT INTO shot (point_id, hit_id, asset_id, vuln_id, target, label, note,
+          file, kind, mime, bytes, width, height, sha256, source_ref, captured_at, found_by_agent, agent, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        pointId,
+        shot.hit_id === undefined || shot.hit_id === null ? null : Number(shot.hit_id),
+        shot.asset_id === undefined || shot.asset_id === null ? null : Number(shot.asset_id),
+        shot.vuln_id === undefined || shot.vuln_id === null ? null : Number(shot.vuln_id),
+        String(shot.target || '').trim() || null,
+        String(shot.label || '').trim() || null,
+        String(shot.note || '').trim() || null,
+        file, kind, mime, buf.length, dim.width, dim.height,
+        createHash('sha256').update(buf).digest('hex'),
+        String(shot.source_ref || shot.path || '').trim() || null,
+        String(shot.captured_at || now).trim(),
+        String(shot.agent || '').trim() || null,
+        String(shot.agent || '').trim() || null,
+        now,
+      )
+      return { ok: true, id: Number(cur.lastInsertRowid), file: file, kind: kind, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') }
+    } catch (error) {
+      if (fd !== undefined) { try { closeSync(fd) } catch { /* preserve original failure */ } }
+      try {
+        const current = lstatSync(dest)
+        if (owned && current.dev === owned.dev && current.ino === owned.ino) unlinkSync(dest)
+      } catch (cleanup) {
+        if (cleanup.code !== 'ENOENT') throw new Error('截图登记失败；新文件清理未确认：' + file, { cause: error })
+      }
+      throw error
+    }
   }
 
   /** 证据截图列表（可按得分点 / 命中 / 资产过滤）。 */

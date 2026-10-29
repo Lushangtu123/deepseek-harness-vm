@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "workbench-v24",
+  "configuration": "workbench-v25",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -16,8 +16,8 @@
       "sha256": "dec02209f23a50f3340caf71695711482c73731ff859be4f94b9f3c41a033b1b"
     },
     "guest-home/.dsh-improved/profiles/web/cordis.patch.yml": {
-      "sourceSha256": "085260af1cef3a12c95560a9dac600e18a7f6b514cda2718ec156e56ae97c843",
-      "sha256": "085260af1cef3a12c95560a9dac600e18a7f6b514cda2718ec156e56ae97c843"
+      "sourceSha256": "fd64e76172a35a9dd68fe0de134dbb61a8a0456bdeb65a30e98c587282f744df",
+      "sha256": "fd64e76172a35a9dd68fe0de134dbb61a8a0456bdeb65a30e98c587282f744df"
     },
     "guest-home/.dsh-improved/profiles/web/cordis.yml": {
       "sourceSha256": "c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e",
@@ -459,7 +459,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-workbench-v24-20261028",
+  "recoveryPoint": "ready-workbench-v25-20261028",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -484,7 +484,7 @@
     ".gitignore": "ed5b2dfcb19b297ad4c71507628b3710e2d4fee5bed050648f732b326cbfa7e3",
     "package.json": "40389171046112e341f299cd7fd1228a1b92f1efa9c0cc46e53c76679f3c329f",
     "README.zh-CN.md": "d4df0d6e57d9da7c0e147cf7bd5929b8f2aa6b4a761f0e97096fd989725d983d",
-    "PERSONAL-CHANGES.md": "2210bcb4797a2da27a230c8ae6d7793550b4d549ed5cb3292dba7327ed058184",
+    "PERSONAL-CHANGES.md": "3147c493635fa6611b8b63468e214c8026d9785e23a3980549f03c96d27b4667",
     "bin/dsh-purge.js": "759081efd77e2ac757d759eeb2d14552bfbf925944ee3a53247e36064196e1eb",
     "bin/personal-cli.mjs": "ede2f67342870cb881ec46bbb20ef390cf75f359e5fb2b9f4e3264629f51a3fc",
     "docs/banner.svg": "14c10266d5b677eab4da37b70b0da3f6c81be775c1c4604375b79c31574eeb4f",
@@ -549,7 +549,7 @@
     "presets/redteam/agent.cordis.yml": "39ea8b170a5e6daa921ea185fe9eb0dd0342eedf177b051868c77e20e1225a55",
     "presets/redteam/anchor-gate.mjs": "0c99a0dafc072a64179f9e9898aede546dbb6e701c2b453b4164a24f05fe4d16",
     "presets/redteam/preset.yml": "a83460c126cee9dc972df015a98a6869709ca64202d96e2ff42321a2876affaa",
-    "lib/redteam/store-core.js": "3edabc43d3f28a4dca442d7333bfd5472b7f37acc14682d2154af33177a6a14a",
+    "lib/redteam/store-core.js": "7cb20b990e933ab76a2fade888a2985faf7d2f94f21361f8f248c30148e1ebdd",
     "lib/redteam/personal-binding-client.mjs": "ed79852ca36e508272a56ea4acf53cb3308ab35ac887f76f750341fa661935dd",
     "lib/redteam/client.js": "b9eb0e46dd51daa7d709d7212a4bd0b5be212a46e51dd940ec1f1a17db752471",
     "lib/redteam/tools.js": "6e5b26ca65073762f9341411ccc11011370a8dbb547a455f8a52d54e9fdeafbb",
