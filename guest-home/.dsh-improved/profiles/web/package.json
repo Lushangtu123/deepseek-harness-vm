@@ -14,8 +14,8 @@
         "@deepseek-ai/dsh-web-app",
         "dsh-purge",
         "dsh-context",
-        "dsh-whale-widget",
-        "dshmarket"
+        "dshmarket",
+        "dsh-whale-widget"
       ]
     }
   }

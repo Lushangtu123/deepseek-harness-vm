@@ -135,7 +135,36 @@ export function dragPetCorner(start,end,width,height) {
  return h&&v?v+'-'+h:'free';
 }
 
-export function installFloatingLayout(choose,planDock,dragCorner) {
+export function installPluginPetPanel(onAction) {
+ if(!document.getElementById('harness-plugin-pet-style')){
+  const style=document.createElement('style');style.id='harness-plugin-pet-style';
+  style.textContent='.harness-pet-recovery{margin:20px 0;padding:16px;border:1px solid #dce5f2;border-radius:12px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-text-primary,#24365a);font:13px/1.7 inherit}.harness-pet-recovery h4{margin:0 0 6px;font-size:14px}.harness-pet-recovery p{margin:6px 0;overflow-wrap:anywhere}.harness-pet-recovery-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.harness-pet-recovery button{font:inherit;padding:7px 12px;border:1px solid #c5d4e9;border-radius:8px;background:#f1f6ff;color:#254d85;cursor:pointer}.harness-pet-recovery button:disabled{opacity:.55;cursor:default}.harness-pet-recovery button:focus-visible{outline:3px solid #2459d8;outline-offset:2px}@media(max-width:700px){[data-plugin-detail] [data-plugin-row]>div{display:grid!important;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center}[data-plugin-detail] [data-plugin-row]>div>:nth-child(1){grid-column:1;grid-row:1}[data-plugin-detail] [data-plugin-row]>div>:nth-child(2){grid-column:1/-1;grid-row:2;min-width:0!important;width:auto!important;overflow-wrap:anywhere}[data-plugin-detail] [data-plugin-row]>div>:nth-child(2)>*{white-space:normal!important;max-width:100%;overflow-wrap:anywhere}[data-plugin-detail] [data-plugin-row]>div>:nth-child(3){grid-column:2;grid-row:1}[data-plugin-detail] [data-plugin-row]>div>[role="switch"]{grid-column:3;grid-row:1;justify-self:end}}';
+  document.head.appendChild(style);
+ }
+ let panel,status,show,reset;
+ return state=>{
+  const detail=document.querySelector('[data-plugin-detail="dsh-whale-widget"]');
+  if(!detail){panel?.remove();panel=null;return}
+  if(!panel||!detail.contains(panel)){
+   panel?.remove();panel=document.createElement('section');panel.className='harness-pet-recovery';panel.id='harness-pet-recovery';panel.setAttribute('aria-label','桌宠显示与位置');
+   const title=document.createElement('h4');title.textContent='桌宠显示与位置';panel.appendChild(title);
+   const note=document.createElement('p');note.textContent='桌宠挡住内容或暂时看不见时，可在这里恢复。';panel.appendChild(note);
+   status=document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');panel.appendChild(status);
+   const actions=document.createElement('div');actions.className='harness-pet-recovery-actions';panel.appendChild(actions);
+   show=document.createElement('button');show.type='button';show.textContent='显示桌宠';show.addEventListener('click',()=>onAction('show'));actions.appendChild(show);
+   reset=document.createElement('button');reset.type='button';reset.textContent='重置位置';reset.addEventListener('click',()=>onAction('reset'));actions.appendChild(reset);
+   const section=detail.querySelector('[data-plugin-rows]');let anchor=section;
+   while(anchor&&anchor.parentElement!==detail)anchor=anchor.parentElement;
+   detail.insertBefore(panel,anchor??null);
+  }
+  const position={'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下',free:'自由'}[state.corner]||'自由';
+  const text=!state.available?'桌宠未运行。请检查插件开关；已开启时刷新页面。':state.hidden?'桌宠暂时隐藏，可尝试显示或重置位置。':'桌宠已显示 · 位置：'+position;
+  if(status.textContent!==text)status.textContent=text;
+  show.disabled=reset.disabled=!state.available;
+ };
+}
+
+export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) {
  const root=document.getElementById('root');
  if(!root||!document.querySelectorAll||document.getElementById('harness-floating-layout'))return;
  const style=document.createElement('style');style.id='harness-floating-layout';
@@ -143,11 +172,12 @@ export function installFloatingLayout(choose,planDock,dragCorner) {
  document.head.appendChild(style);
  style.textContent+=':is(.dshwv-pop)[data-harness-occluded="true"]{opacity:0!important;pointer-events:none!important}:is(.dshwv-pop)[data-harness-occluded="true"] *{pointer-events:none!important}';
  if(planDock)style.textContent+='#root{width:calc(100% - var(--harness-pet-lane,0px))!important;margin-left:var(--harness-pet-left-lane,0px)!important}#root .dshp-launch{right:calc(16px + var(--harness-pet-lane,0px) - var(--harness-pet-left-lane,0px))!important;bottom:calc(16px + var(--harness-pet-footer-inset,0px))!important}#harness-vm-identity{left:calc(12px + var(--harness-pet-left-lane,0px))!important;max-width:calc(100vw - 24px - var(--harness-pet-lane,0px))!important}';
- let pending=false,dragging=false,dragStart=null,corner='free',storageAvailable=true;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
+ let pending=false,dragging=false,dragStart=null,corner='free',storageAvailable=true,pluginEnabled=true,componentEnabled=true;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
  const corners=['top-left','top-right','bottom-left','bottom-right','free'];
  if(planDock)try{const saved=localStorage.getItem('harness-pet-corner-v1');if(corners.includes(saved))corner=saved}catch{storageAvailable=false}
  const setProperty=(node,key,value)=>{if(node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)};
  const changeCorner=value=>{corner=value;try{localStorage.setItem('harness-pet-corner-v1',value)}catch{storageAvailable=false}schedule()};
+ const renderPetPanel=mountPetPanel?.(action=>{dragging=false;dragStart=null;const summary=document.getElementById('harness-vm-identity');if(summary?.open)summary.open=false;changeCorner(action==='reset'?'bottom-right':'free')});
  const dockMenus=new WeakSet();
  const addDockMenu=()=>{
   if(!planDock)return;
@@ -183,7 +213,10 @@ export function installFloatingLayout(choose,planDock,dragCorner) {
   pending=false;
   addDockMenu();
   const widget=document.querySelector('.dshwv-root'),img=widget?.querySelector('.dshwv-img');
-  if(!widget||!img){if(planDock)for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){setProperty(node,'--harness-pet-lane','0px');setProperty(node,'--harness-pet-left-lane','0px');setProperty(node,'--harness-pet-footer-inset','0px')}return}
+  const pluginSwitch=document.querySelector('[role="switch"][aria-label="Enable dsh-whale-widget"]'),componentSwitch=document.querySelector('[role="switch"][aria-label="Enable component dsh-whale-widget"]');
+  if(pluginSwitch)pluginEnabled=pluginSwitch.getAttribute('aria-checked')!=='false';
+  if(componentSwitch&&pluginEnabled)componentEnabled=componentSwitch.getAttribute('aria-checked')!=='false';
+  if(!widget||!img||!pluginEnabled||!componentEnabled){if(widget)setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:false,hidden:true,corner});if(planDock)for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){setProperty(node,'--harness-pet-lane','0px');setProperty(node,'--harness-pet-left-lane','0px');setProperty(node,'--harness-pet-footer-inset','0px')}return}
   if(dragging)return;
   let dock=planDock?.(corner,innerWidth,innerHeight,img.getBoundingClientRect().width,img.getBoundingClientRect().height);
   if(planDock){
@@ -201,7 +234,7 @@ export function installFloatingLayout(choose,planDock,dragCorner) {
     for(const button of row.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.getAttribute('aria-label')===(corner==='free'?'桌宠自由拖动':'桌宠停靠'+{'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下'}[corner]+'角')));
    }
   }
-  const image=img.getBoundingClientRect();if(image.width<=0||image.height<=0)return;
+  const image=img.getBoundingClientRect();if(image.width<=0||image.height<=0){setHidden(widget,true);for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,true);renderPetPanel?.({available:true,hidden:true,corner});return}
   let left=image.left,top=image.top,right=image.right,bottom=image.bottom;
   for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open')){
    const css=getComputedStyle(popup),r=popup.getBoundingClientRect();
@@ -220,6 +253,7 @@ export function installFloatingLayout(choose,planDock,dragCorner) {
   const placement=document.getElementById('harness-vm-identity')?.open||dockBlocked?null:dock??choose({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},controls,innerWidth,innerHeight);
   const hidden=placement===null;
   setHidden(widget,hidden);
+  renderPetPanel?.({available:true,hidden,corner});
   for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,hidden||!menu.classList.contains('dshwv-menu-open'));
   if(placement){
    const dx=placement.x-bounds.x,dy=placement.y-bounds.y;
@@ -238,7 +272,7 @@ export function installFloatingLayout(choose,planDock,dragCorner) {
  const schedule=()=>{if(!pending){pending=true;setTimeout(update,100)}};
  if(typeof MutationObserver!=='undefined')new MutationObserver(records=>{
   if(records.some(r=>r.attributeName==='open'||(!r.target.closest?.('#harness-vm-identity')&&!(r.attributeName==='style'&&writtenStyles.get(r.target)===r.target.getAttribute?.('style')))))schedule();
- }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open']});
+ }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open','aria-checked']});
  if(typeof ResizeObserver!=='undefined'){const sizes=new ResizeObserver(schedule);sizes.observe(root)}
  window.addEventListener('resize',schedule);document.addEventListener('scroll',schedule,true);
  document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-root')){dragging=true;const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();dragStart=r?{x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY}:null}},true);
@@ -277,7 +311,7 @@ export const ENVIRONMENT_BANNER = `(() => {
   const cancelled=new Promise((_,reject)=>{rejectAbort=reject});
   const data=await Promise.race([cancelled,(async()=>{const response=await fetch('/__harness/environment',{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('unavailable');return response.json()})()]);
   latest=data;checkedClock=clock();failed=false;clearTimeout(expiry);expiry=setTimeout(render,60000);expiry?.unref?.();
-  if(data.mode==='improved')(${installFloatingLayout.toString()})(${chooseWidgetPlacement.toString()},${planPetDock.toString()},${dragPetCorner.toString()});
+  if(data.mode==='improved')(${installFloatingLayout.toString()})(${chooseWidgetPlacement.toString()},${planPetDock.toString()},${dragPetCorner.toString()},${installPluginPetPanel.toString()});
   detail='配置目录：'+data.configDir+'\\nHarness 安装包版本：'+(data.runtimePackageVersion||'未确认')+'\\n恢复点（程序、工具和配置）：'+(data.recovery?.name||'无')+(data.recovery?.createdAt?'\\n建立时间：'+new Date(data.recovery.createdAt).toLocaleString('zh-CN'):'')+'\\n运行状态核对：'+new Date(data.observedAt).toLocaleTimeString('zh-CN')+'\\n'+Object.entries({program:'改进版程序',runtime:'核心运行时',tools:'工具',config:'配置',plugins:'已导入插件'}).map(([key,label])=>label+'：'+({matches:'已覆盖',older:'未覆盖最新',missing:'未建立',uncovered:'未纳入核对'}[data.recovery?.groups?.[key]?.state]||'未验证')).join('；')+(data.recovery?.uncoveredFiles?.length?'\\n未覆盖文件：'+data.recovery.uncoveredFiles.join('、'):'')+(data.recovery?.differentFiles?.length?'\\n变更文件：'+data.recovery.differentFiles.join('、')+(data.recovery.differenceDetailsTruncated?'（仅显示部分）':''):'')+(data.recovery?.launchAgentsMatch===false?'\\n宿主启动配置与恢复点不同。':'')+(data.recovery?.state==='older'?'\\n建议：先确认改动来源，再建立新恢复点；不会自动覆盖文件。':'')+'\\n覆盖仅指所列文件，不代表之后新增的数据已备份。'+(data.modeFileMatches?'':'\\n版本标记与实际进程不一致，请检查启动入口。');
  }catch{failed=true;if(!latest)info.textContent='无法核对实际进程，请确认 VM 已启动后刷新。';}
  finally{clearTimeout(timer);controller.signal.removeEventListener('abort',abort);busy=false;refresh.disabled=false;render()}}

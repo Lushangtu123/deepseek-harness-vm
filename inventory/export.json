@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "workbench-v27b",
+  "configuration": "workbench-v28",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -24,8 +24,8 @@
       "sha256": "c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e"
     },
     "guest-home/.dsh-improved/profiles/web/package.json": {
-      "sourceSha256": "ee9f8b811446718b1f5b3052d79a3688c49e5d20d7642af32cccb0e7903707c6",
-      "sha256": "ee9f8b811446718b1f5b3052d79a3688c49e5d20d7642af32cccb0e7903707c6"
+      "sourceSha256": "71d84203cff4c4a5730ddb3fad25b036fb6413ad1c9b58b984020a4d0e5f37e5",
+      "sha256": "71d84203cff4c4a5730ddb3fad25b036fb6413ad1c9b58b984020a4d0e5f37e5"
     },
     "guest-home/.config/harness-vm-mode": {
       "sourceSha256": "8452041bcae35587f9f3ae42653ed937837da105bed69d8c38a42d76601bf0b3",
@@ -459,7 +459,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-workbench-v27b-20261028",
+  "recoveryPoint": "ready-workbench-v28-20261028",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
