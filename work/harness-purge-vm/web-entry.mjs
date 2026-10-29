@@ -3,6 +3,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { Transform } from 'node:stream'
+import { createHash, randomUUID } from 'node:crypto'
 import { createDiagnostics, HEALTH_HTML, ENVIRONMENT_BANNER, RECOVERY_HTML } from './web-health.mjs'
 
 const executeFile = promisify(execFile)
@@ -42,12 +43,14 @@ export function createEnvironmentReader({ run = () => executeFile('/opt/homebrew
       const value = JSON.parse(result.stdout)
       if (!['original', 'improved', 'unknown'].includes(value.mode) || !['/home/purge/.dsh', '/home/purge/.dsh-improved', 'unverified'].includes(value.configDir) || !['matches', 'older', 'missing', 'invalid'].includes(value.recovery?.state)) throw Error('Invalid local status')
       // Fixed public metadata only; command stderr, credentials and arbitrary fields never reach HTTP.
-      const allowedPaths = new Set(['.dsh-improved/cordis.patch.yml', '.dsh-improved/profiles/web/package.json', '.dsh-improved/profiles/web/cordis.patch.yml', '.dsh-improved/AGENTS.md', '.config/harness-vm-mode', '.local/bin/harness-vm-web', '.local/bin/toolchain-versions', ...['index.mjs', 'process.mjs', 'check_versions.py', 'catalog.json'].map(name => '.dsh-improved/tooling/toolchain-version-checker/' + name)])
+      const allowedPaths = new Set(['.config/harness-original-capabilities', '.dsh-improved/cordis.patch.yml', '.dsh-improved/profiles/web/package.json', '.dsh-improved/profiles/web/cordis.patch.yml', '.dsh-improved/AGENTS.md', '.config/harness-vm-mode', '.local/bin/harness-vm-web', '.local/bin/toolchain-versions', ...['index.mjs', 'process.mjs', 'check_versions.py', 'catalog.json'].map(name => '.dsh-improved/tooling/toolchain-version-checker/' + name)])
       const pluginRoot='tools/imported-dsh-plugins-20261027T185822Z/'
       for(const name of ['dsh-context','dsh-whale-widget','dshmarket'])allowedPaths.add('.dsh-improved/profiles/web/node_modules/'+name)
       const pluginPath=path=>typeof path==='string'&&path.startsWith(pluginRoot)&&['dsh-context','dsh-whale-widget','dshmarket'].some(name=>path.startsWith(pluginRoot+name+'/'))&&/^[A-Za-z0-9._/-]{1,240}$/.test(path)&&!path.split('/').some(part=>!part||part==='.'||part==='..'||(part.startsWith('.')&&part!=='.gitkeep')||/credential|secret|token|provider/i.test(part))
       for (const name of ['dsh-tools', 'dsh-tool-bash', 'dsh-permission-presets', 'dsh-user-approval']) allowedPaths.add('tools/harness-improved-runtime/node_modules/@deepseek-ai/' + name + '/lib/index.js')
       for (const name of ['package.json', 'lib/bin.js']) allowedPaths.add('tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh/' + name)
+      for (const name of ['.personal-runtime-manifest.json','lib/bin.js','package.json']) allowedPaths.add('tools/harness-original-capabilities/'+name)
+      for (const name of ['dsh-tools','dsh-tool-bash','dsh-permission-presets','dsh-user-approval']) allowedPaths.add('tools/harness-original-capabilities/node_modules/@deepseek-ai/'+name+'/lib/index.js')
       for (const name of ['manage.py', 'egress_proxy.py', 'qemu-image.py', 'web-entry.mjs', 'web-health.mjs']) allowedPaths.add('host-tools/' + name)
       for (const label of ['com.personal.harness-purge-original-egress', 'com.personal.harness-purge-original-web-entry']) allowedPaths.add('host-launch-agents/' + label + '.plist')
       const approvedPath = path => typeof path === 'string' && (allowedPaths.has(path) || pluginPath(path) || (path.startsWith('tools/dsh-purge-personal-1.1.77-personal.1/') && /^[A-Za-z0-9._/-]{1,240}$/.test(path) && !path.split('/').some(part => !part || part === '.' || part === '..' || /credential|secret|token|provider/i.test(part))))
@@ -64,7 +67,7 @@ export function createEnvironmentReader({ run = () => executeFile('/opt/homebrew
       const uncoveredFiles = paths(value.recovery.uncoveredFiles)
       const changed = [...new Set(allChanged)]
       const runtimePackageVersion = typeof value.runtimePackageVersion === 'string' && /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,79}$/.test(value.runtimePackageVersion) ? value.runtimePackageVersion : null
-      cached = { mode: value.mode, configDir: value.configDir, runtimePackageVersion, modeFileMatches: value.modeFileMatches === true, observedAt: value.observedAt, recovery: { state: value.recovery.state, name: value.recovery.name, createdAt: value.recovery.createdAt, scope: 'improved-program-tools-config', groups, uncoveredFiles, helpersMatch: value.recovery.helpersMatch === true, launchAgentsMatch: typeof value.recovery.launchAgentsMatch === 'boolean' ? value.recovery.launchAgentsMatch : null, differentFiles: changed.slice(0, 80), differentFileCount: Math.max(changed.length,changedCount), differenceDetailsTruncated: changed.length > 80||truncated } }
+      cached = { originalCapabilities: value.mode === "improved" && value.originalCapabilities === true, mode: value.mode, configDir: value.configDir, runtimePackageVersion, modeFileMatches: value.modeFileMatches === true, observedAt: value.observedAt, recovery: { state: value.recovery.state, name: value.recovery.name, createdAt: value.recovery.createdAt, scope: 'improved-program-tools-config', groups, uncoveredFiles, helpersMatch: value.recovery.helpersMatch === true, launchAgentsMatch: typeof value.recovery.launchAgentsMatch === 'boolean' ? value.recovery.launchAgentsMatch : null, differentFiles: changed.slice(0, 80), differentFileCount: Math.max(changed.length,changedCount), differenceDetailsTruncated: changed.length > 80||truncated } }
       checkedMono = now(); checkedWall = wallNow()
       return cached
     }).finally(() => { pending = undefined })
@@ -88,12 +91,69 @@ function bannerTransform() {
 // Private loopback entry for the existing VM service. One reusable HTTP socket
 // serializes initial connections through SLiRP. Upgraded sockets leave the
 // agent's pool, so long-lived Harness WebSockets do not block ordinary requests.
-export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000, bodyIdleTimeoutMs = 15000, environmentReader = createEnvironmentReader(), recoveryReader = createRecoveryReader() } = {}) {
+export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000, bodyIdleTimeoutMs = 15000, environmentReader = createEnvironmentReader(), recoveryReader = createRecoveryReader(), capabilityRun = action => executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'capabilities','--capability-mode',action],{timeout:150000,maxBuffer:32768}) } = {}) {
   const agent = new http.Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1 })
   const sockets = new Set()
   const diagnostics = createDiagnostics()
   const upstreamOrigin = 'http://127.0.0.1:49224'
   const entryOrigin = () => 'http://127.0.0.1:' + server.address().port
+  let capabilityOperation, capabilityAdmissionBusy = false
+  const cookieIdentity = req => typeof req.headers.cookie === 'string' && req.headers.cookie.length > 0 && req.headers.cookie.length <= 16384 ? createHash('sha256').update(req.headers.cookie).digest('hex') : null
+  const publicOperation = operation => operation ? Object.fromEntries(['id','state','targetEnabled'].map(key=>[key,operation[key]])) : null
+  const readOwnerPlugin = req => new Promise((resolve,reject)=>{
+    const request=http.request({host:'127.0.0.1',port:upstreamPort,path:'/dsh-purge/status',method:'GET',headers:{host:'127.0.0.1:49224',cookie:req.headers.cookie||''},agent:false},response=>{
+      const chunks=[];let bytes=0
+      response.on('data',chunk=>{bytes+=chunk.length;if(bytes>2097152)request.destroy(Error('Invalid plugin response'));else chunks.push(chunk)})
+      response.on('end',()=>{
+        if(response.statusCode===401||response.statusCode===403){resolve({rejected:response.statusCode});return}
+        try {
+          const data=JSON.parse(Buffer.concat(chunks).toString())
+          if(response.statusCode!==200||data?.ok!==true||data.ready!==true||data.originalCapabilities?.managed!==true||typeof data.originalCapabilities.enabled!=='boolean')throw Error('Plugin unavailable')
+          resolve({ok:true,ready:true,originalCapabilities:{enabled:data.originalCapabilities.enabled,managed:true},...Object.fromEntries(['patches_applied','patches_total','patches_skipped'].map(key=>[key,Number.isSafeInteger(data[key])?data[key]:0]))})
+        }catch{reject(Error('Plugin unavailable'))}
+      })
+      response.on('error',reject)
+    })
+    request.setTimeout(6000,()=>request.destroy(Error('Owner check deadline')))
+    request.on('error',reject);request.end()
+  })
+  async function capabilities(req,res) {
+    const send=(status,value)=>{if(!res.destroyed){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}}
+    if(!['GET','POST'].includes(req.method)){send(405,{ok:false,error:'Method not allowed'});return}
+    if(req.url!=='/__harness/capabilities'||req.headers['x-harness-local']!=='1'||req.headers['sec-fetch-site']==='cross-site'){send(403,{ok:false,error:'Local request required'});return}
+    const owner=cookieIdentity(req)
+    if(!owner){send(401,{ok:false,error:'Harness owner session required'});return}
+    if(req.method==='GET'&&capabilityOperation?.state==='running'&&capabilityOperation.owner===owner){send(200,{ok:true,enabled:null,operation:publicOperation(capabilityOperation)});return}
+    if(req.method==='POST'){
+      if(req.headers.origin!==entryOrigin()){send(403,{ok:false,error:'Same-origin confirmation required'});return}
+      if(String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()!=='application/json'){send(415,{ok:false,error:'JSON required'});return}
+      if(capabilityAdmissionBusy||capabilityOperation?.state==='running'){send(409,{ok:false,error:'A capability switch is already running'});return}
+      capabilityAdmissionBusy=true
+    }
+    try{
+      let body
+      if(req.method==='POST'){
+        let text='',length=0
+        for await(const chunk of req){length+=chunk.length;if(length>512){send(413,{ok:false,error:'Request too large'});return}text+=chunk}
+        try{body=JSON.parse(text)}catch{send(400,{ok:false,error:'Invalid JSON'});return}
+        if(!body||Array.isArray(body)||typeof body.enabled!=='boolean'||typeof body.expectedEnabled!=='boolean'||Object.keys(body).some(key=>!['enabled','expectedEnabled'].includes(key))){send(400,{ok:false,error:'Explicit boolean mode required'});return}
+      }
+      const plugin=await readOwnerPlugin(req)
+      if(plugin.rejected){send(plugin.rejected,{ok:false,error:'Harness owner session required'});return}
+      if(req.method==='GET'){send(200,{ok:true,enabled:plugin.originalCapabilities.enabled,pluginStatus:plugin,operation:capabilityOperation?.owner===owner?publicOperation(capabilityOperation):null});return}
+      if(plugin.originalCapabilities.enabled!==body.expectedEnabled){send(409,{ok:false,error:'Current mode changed; refresh before confirming'});return}
+      if(body.enabled===body.expectedEnabled){send(409,{ok:false,error:'Requested mode is already active'});return}
+      if(req.aborted||res.destroyed)return
+      const operation={id:randomUUID(),state:'running',targetEnabled:body.enabled,owner}
+      capabilityOperation=operation
+      Promise.resolve().then(()=>capabilityRun(body.enabled?'enable':'disable')).then(result=>{
+        const value=JSON.parse(result.stdout)
+        operation.state=value.enabled===body.enabled&&value.configured===body.enabled?'succeeded':'unconfirmed'
+      }).catch(()=>{operation.state='unconfirmed'})
+      send(202,{ok:true,operation:publicOperation(operation)})
+    }catch{send(503,{ok:false,error:'Capability state unavailable; read status before trying again'})}
+    finally{if(req.method==='POST')capabilityAdmissionBusy=false}
+  }
   const upstreamHeaders = req => {
     const headers = { ...req.headers, host: '127.0.0.1:49224' }
     // Cross-origin requests are rejected at the entry before this mapping.
@@ -200,6 +260,7 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
   const server = http.createServer(async (req, res) => {
     if (!allowed(req, res)) return
     const recoveryPath=req.url.split('?',1)[0]
+    if(recoveryPath==='/__harness/capabilities'){await capabilities(req,res);return}
     if(recoveryPath==='/__harness/recoveries'||recoveryPath==='/__harness/recovery'){
       if(req.method!=='GET'){res.writeHead(405);res.end();return}
       const json=recoveryPath.endsWith('/recoveries')

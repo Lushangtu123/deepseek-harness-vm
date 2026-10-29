@@ -1,6 +1,6 @@
 {
   ".npmignore": "7e04cab6ff4206c15db2a40b0a7fbc1e7ecdad17fa066c1194f02c32df0a026b",
-  "client.js": "49d9fcf35a406cbeb57fad6ff172f638a95972d17b5922fb99b80cd01fc71b79",
+  "client.js": "046a453b165c82c84715b22c6ee174419589e2c7717d760990f174256b0a4d82",
   "screenshots.json": "9e6600ec59cce473c540b62cc47c83bc6091346065405cd807ee066a9b92bf44",
   "release-notes.md": "8b699de924c5f6be487ce3e06178cdbc33ae410831d989f0ac2455e8b15694b0",
   "cordis.patch.yml": "88ed15926267a51d75350d495ad42e6e98cc423297175973b574345e78e0536e",
@@ -16,9 +16,9 @@
   "bin/personal-cli.mjs": "ede2f67342870cb881ec46bbb20ef390cf75f359e5fb2b9f4e3264629f51a3fc",
   "docs/banner.svg": "14c10266d5b677eab4da37b70b0da3f6c81be775c1c4604375b79c31574eeb4f",
   "docs/v1.1.34-prompt-inject.md": "475ca676aab6142a362164cb5dd55a5d9faad99842eecf833293aef456ab6f97",
-  "docs/\u4fee\u6539\u6587\u6863.md": "deb0284888a2517071cf331527a98ad2349c6bb3ca931bd5f527dd55b437ebb8",
+  "docs/修改文档.md": "deb0284888a2517071cf331527a98ad2349c6bb3ca931bd5f527dd55b437ebb8",
   "docs/redteam-upstream-LICENSE": "153f23cd640e27a668e549556571bb99f49cfa3b9148fb5af8f44416b0d66a3d",
-  "docs/\u6ce8\u5165\u65b9\u5f0f\u6539\u9020\u65b9\u6848-1.1.34\u5316.md": "86d5dc9da3066c7186a99ceacb92be436a0ff16aeb6cc5e22e6648686e10dd99",
+  "docs/注入方式改造方案-1.1.34化.md": "86d5dc9da3066c7186a99ceacb92be436a0ff16aeb6cc5e22e6648686e10dd99",
   "docs/redteam-upstream-DISCLOSURE": "7753f3c0da85e5efb883d4176a1b465538abb74bfd55a63c52b9d855cc09c0ec",
   "docs/drill-auth-legal.html": "00c4328c1ac3ce4dad784911b7eeeec5931f5da202124028121dc55f14e601d0",
   "scripts/export-engagement-report.mjs": "0ad1d8e29301b7215a4c233b359db5c4e5a786a28d1370632590e44217e2d3f7",
@@ -44,7 +44,7 @@
   "lib/update.js": "3b30a1856bbf31cb49e483de83d78a0533e1a695510d96ac9f53bca0db5799b4",
   "lib/asset-table.js": "c231906a4911279ecb2e3677fe7a6c5fc2e94a921b554a0bc6d5f5c3a7608440",
   "lib/skills.js": "5706679e858921f0d46ff9a2d9f9c38f8c8be7c0b56f37e57c5fa82b501e13f4",
-  "lib/index.js": "e416e865e004b6bbe3f51abe6c705c05ae76c4aea0fb657f056954eed4993b4f",
+  "lib/index.js": "eca44f8e9534b642caeacdb7f5b27da776c926cca4426c4cc1750e146c3f4a94",
   "lib/personal-daily.js": "74b888e78c64c63eeadfac2b2c7845eb963cdcf810f7863f8df82851a392b781",
   "lib/host-clean.js": "3974977c015ec7ef198b530321deccea7407300f455fb0e46f17e7e587ca5ad4",
   "lib/reapply-cli.js": "828722e85b4eab6a604fee6dfca88083e0e2f70725b42f101e83dc56d755ffad",
@@ -112,5 +112,6 @@
   "docs/preview/dock-drill.png": "30df7fac3ef8047d9e57101134a6570a8bceb02e5b36fb97cb8f1b11c6c539d9",
   "docs/preview/own-servers-en.png": "ff27f6fd1993d2aa4bfad9fa7ce8ce10befdec4678152b341ff3d89509c6183d",
   "docs/preview/own-servers.png": "bd83fdb9c94184d65ab7c6ed98610d7c62192f77ee90918ccbb9213d898eb81a",
-  "docs/preview/dock-auth.png": "70265078d8a430068515fd92dc38e41aa1ce88b2791b16a6a17fdde0ecd1982c"
+  "docs/preview/dock-auth.png": "70265078d8a430068515fd92dc38e41aa1ce88b2791b16a6a17fdde0ecd1982c",
+  "lib/personal-original.mjs": "3f5c509adcdf325415e847b26b36e2ffd44d0cb38071345080289209043f50a4"
 }

@@ -1,3 +1,4 @@
+import { originalCapabilitiesEnabled, installOriginalCapabilities } from "./personal-original.mjs";
 import { installPersonalControls, PERSONAL_POLICY, VM_POLICY, vmAutonomyEnabled } from "./personal-controls.mjs";
 import { authenticatedWebServer } from "./personal-http-auth.mjs";
 import { installStartupRecovery } from "./personal-startup-recovery.mjs";
@@ -1458,8 +1459,10 @@ async function handleSkillsCommand(rawInput) {
 }
 
 export function apply(ctx, config) {
+  const originalCapabilities = originalCapabilitiesEnabled();
   const cfg = { ...DEFAULTS, ...(config || {}), autoApplyOnStart: false, autoUpdateOnStart: false,
-    autoRevertOnMissing: false, hooksDenyBypass: false, autoContinue: false, autoRetry: false };
+    autoRevertOnMissing: false, hooksDenyBypass: originalCapabilities,
+    autoContinue: false, autoRetry: originalCapabilities, originalCapabilities };
   if (!cfg.enabled) return;
   installStartupRecovery(ctx);
   installSubagentRoleCapture(ctx);
@@ -1467,6 +1470,33 @@ export function apply(ctx, config) {
     text: context => resolveSubagentRoleText(context, () => ctx.get?.("redteam")) });
   addPromptSection(ctx, { name: "dsh-personal-consent", order: 1000, interpolate: false,
     text: vmAutonomyEnabled(cfg) ? VM_POLICY : PERSONAL_POLICY });
+  if (originalCapabilities) installOriginalCapabilities(ctx, cfg, {
+    identity() {
+      core.setHooksDenyConfigValue(cfg.hooksDenyBypass);
+      core.refreshHooksDenySettings();
+      const home = core.pinDshHome() || core.findDshHome();
+      const disabled = path.join(home, ".hung-disabled");
+      if (fs.existsSync(disabled)) fs.unlinkSync(disabled);
+      installHungPromptGlobal();
+      core.seedPromptInjectAtBoot(home);
+      refreshHungOperator(home);
+      core.applyRuntimeEnv();
+      installIdentityOverride(ctx, cfg);
+    },
+    region: installRegionGate,
+    freshPermissions: installFreshFullAccess,
+    rewind: installRewindDeriveFilter,
+    cwd: installCwdCapture,
+    mnemon: installMnemonMessageStrip,
+    prompts: registerPromptSections,
+    retry() {
+      const saved = continueRetry.loadSettings(core.findDshHome());
+      const running = continueRetry.installContinueRetry(ctx, {
+        getConfig: () => continueRetry.mergeConfig(cfg, saved),
+      });
+      ctx.effect(() => () => running?.dispose?.());
+    },
+  });
   applyHostHooks(ctx, cfg);
 }
 
@@ -1659,7 +1689,7 @@ function installWebServer(ctx, cfg) {
           if (!allowPluginRequest(request, response)) return;
           const blocked = new Set(["/dsh-purge/apply", "/dsh-purge/revert", "/dsh-purge/uninstall", "/dsh-purge/update", "/dsh-purge/hooks-deny", "/dsh-purge/restart"]);
           if (request.method !== "GET" && blocked.has(spec.path)) {
-            sendJson(response, 409, { ok:false, error:"独立改进版保留宿主权限；此操作请使用保留的原版环境。改进版更新由已验收版本包完成。" });
+            sendJson(response, 409, { ok:false, error:"合并版通过“启用原版能力 / 停用原版能力”入口管理专用运行时；更新与卸载由已验收版本包完成，不在当前进程改写运行时。" });
             return;
           }
           return spec.handler(request, response);
@@ -1685,6 +1715,7 @@ function installWebServer(ctx, cfg) {
             sendJson(response, 200, {
               ok: true,
               ready: true,
+              originalCapabilities: { enabled: cfg.originalCapabilities === true, managed: true },
               surface: state.surface || hostctl.currentSurface(),
               ai_base: state.ai_base,
               desktop_install: state.desktop_install || "",

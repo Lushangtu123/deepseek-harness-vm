@@ -349,7 +349,7 @@ export const ENVIRONMENT_BANNER = `(() => {
  function render(){
   const age=elapsed(checkedClock),seconds=Math.floor(age/1000),label=!Number.isFinite(age)?'核对时间已变化':seconds<10?'刚刚核对':seconds<60?seconds+' 秒前核对':Math.floor(seconds/60)+' 分钟前核对';
   if(!latest){title.textContent=failed?'VM · 版本状态暂时不可用':'VM · 正在核对运行版本';return}
-  const mode={original:'完整原版',improved:'改进版',unknown:'版本未验证'}[latest.mode]||'版本未验证';
+  const mode=({original:'完整原版',improved:'改进版',unknown:'版本未验证'}[latest.mode]||'版本未验证')+(latest.originalCapabilities?' · 原版能力已启用':'');
   const coverage={matches:'已覆盖程序、工具和配置',older:'存在未覆盖或已变更项',missing:'未建立',invalid:'校验失败'}[latest.recovery?.state]||'未验证';
   title.textContent=busy?'VM · 正在重新核对 · '+label:failed?'VM · 状态核对失败 · '+label:age>=60000?'VM · '+mode+' · 状态待重新核对 · '+label:'VM · '+mode+' · 恢复点：'+coverage+' · '+label;
   info.textContent=detail+'\\n核对有效期：60 秒；过期后需重新核对。'+(failed?'\\n本次核对失败，上次结果仅供参考；请确认 VM 已启动后刷新。':'');

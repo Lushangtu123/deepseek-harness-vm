@@ -1,6 +1,12 @@
 # DeepSeek Harness VM 配置备份
 
-当前配置：**workbench v30**，更新日期 **2026-10-28（America/Los_Angeles）**。这是专用 Linux VM 的私有配置与代码备份。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+当前配置：**合并版 · 原版能力按需启用**，更新日期 **2026-10-29（America/Los_Angeles）**。这是专用 Linux VM 的私有配置与代码备份。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+
+## 原版能力开关
+
+打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。导出时开关关闭，仍使用日常改进版；启用后采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
+
+当前恢复点为 `ready-merged-switch-20261029`，合并版r1、v30及旧恢复点保留。原版运行时副本和实际恢复磁盘不上传，本仓库继续保存配置与源码。
 
 ## 内容
 
@@ -11,7 +17,7 @@ v29 修复桌宠移动抖动和双击余额气泡被隐藏：保留与 GitHub �
 | 目录 | 保存内容 |
 | --- | --- |
 | `guest-home/` | 从运行中 VM 读取的配置、预设、6 组技能、systemd 服务、命令入口、REA/PentAGI 连接配置与版本检查器 |
-| `work/harness-purge-improved/` | 与当前 VM 114 项摘要一致的改进版 dsh-purge 源码及 JavaScript 回归测试 |
+| `work/harness-purge-improved/` | 与当前 VM 115 项摘要一致的改进版 dsh-purge 源码及 JavaScript 回归测试 |
 | `runtime-overrides/` | 当前 VM 修改过的四个官方运行时模块及其版本、许可证；按原路径另存，不提交 node_modules |
 | `work/harness-purge-vm/` | 与当前安装一致的五个 Mac 运维工具及测试，包括网页入口、诊断、恢复点和隔离代理 |
 | `work/toolchain-version-checker/` | REA、reverse-skill、PentAGI 固定来源版本检查器及测试 |

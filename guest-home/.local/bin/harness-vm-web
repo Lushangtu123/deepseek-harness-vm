@@ -11,6 +11,19 @@ case "$mode" in
   improved)
     export DSH_HOME=/home/purge/.dsh-improved
     entry=/home/purge/tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js
+    original_mode=/home/purge/.config/harness-original-capabilities
+    test ! -L "$original_mode"
+    if test -f "$original_mode"; then
+      case "$(cat "$original_mode")" in
+        on)
+          export DSH_PERSONAL_ORIGINAL=enabled
+          export DSH_BASE=/home/purge/tools/harness-original-capabilities/node_modules/@deepseek-ai
+          entry=/home/purge/tools/harness-original-capabilities/lib/bin.js
+          ;;
+        off) ;;
+        *) printf 'Invalid original capability mode; refusing startup.\n' >&2; exit 1 ;;
+      esac
+    fi
     ;;
   *) printf 'Unknown VM Harness mode; refusing startup.\n' >&2; exit 1 ;;
 esac

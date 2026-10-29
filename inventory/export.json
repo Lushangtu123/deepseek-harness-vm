@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "workbench-v30",
+  "configuration": "merged-original-switch",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -40,8 +40,8 @@
       "sha256": "c5b56857e107f621bbe12f6b07bb904fc37e631789bbad65c21ecb3fbc77cc7a"
     },
     "guest-home/.local/bin/harness-vm-web": {
-      "sourceSha256": "a3603aa5a849940d2824fdf088aea6feac65a4486e4e3025a2abe63d7b7773fa",
-      "sha256": "a3603aa5a849940d2824fdf088aea6feac65a4486e4e3025a2abe63d7b7773fa"
+      "sourceSha256": "1525bf9ba0b3147261d06b2773c2bf538073a9f29dd38a42c97e74022d1e775f",
+      "sha256": "1525bf9ba0b3147261d06b2773c2bf538073a9f29dd38a42c97e74022d1e775f"
     },
     "guest-home/.local/bin/toolchain-versions": {
       "sourceSha256": "9cf974bae3e1afe04f6e45851532806e2f73e917269514e06f3bdc81e2a720c6",
@@ -393,6 +393,10 @@
       "sourcePath": "tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh-user-approval/LICENSE",
       "sourceSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
       "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+    },
+    "guest-home/.config/harness-original-capabilities": {
+      "sourceSha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6",
+      "sha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6"
     }
   },
   "sanitizedGuestFiles": [
@@ -459,7 +463,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-workbench-v30-20261028",
+  "recoveryPoint": "ready-merged-switch-20261029",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -473,7 +477,7 @@
   },
   "programFiles": {
     ".npmignore": "7e04cab6ff4206c15db2a40b0a7fbc1e7ecdad17fa066c1194f02c32df0a026b",
-    "client.js": "49d9fcf35a406cbeb57fad6ff172f638a95972d17b5922fb99b80cd01fc71b79",
+    "client.js": "046a453b165c82c84715b22c6ee174419589e2c7717d760990f174256b0a4d82",
     "screenshots.json": "9e6600ec59cce473c540b62cc47c83bc6091346065405cd807ee066a9b92bf44",
     "release-notes.md": "8b699de924c5f6be487ce3e06178cdbc33ae410831d989f0ac2455e8b15694b0",
     "cordis.patch.yml": "88ed15926267a51d75350d495ad42e6e98cc423297175973b574345e78e0536e",
@@ -517,7 +521,7 @@
     "lib/update.js": "3b30a1856bbf31cb49e483de83d78a0533e1a695510d96ac9f53bca0db5799b4",
     "lib/asset-table.js": "c231906a4911279ecb2e3677fe7a6c5fc2e94a921b554a0bc6d5f5c3a7608440",
     "lib/skills.js": "5706679e858921f0d46ff9a2d9f9c38f8c8be7c0b56f37e57c5fa82b501e13f4",
-    "lib/index.js": "e416e865e004b6bbe3f51abe6c705c05ae76c4aea0fb657f056954eed4993b4f",
+    "lib/index.js": "eca44f8e9534b642caeacdb7f5b27da776c926cca4426c4cc1750e146c3f4a94",
     "lib/personal-daily.js": "74b888e78c64c63eeadfac2b2c7845eb963cdcf810f7863f8df82851a392b781",
     "lib/host-clean.js": "3974977c015ec7ef198b530321deccea7407300f455fb0e46f17e7e587ca5ad4",
     "lib/reapply-cli.js": "828722e85b4eab6a604fee6dfca88083e0e2f70725b42f101e83dc56d755ffad",
@@ -585,7 +589,8 @@
     "docs/preview/dock-drill.png": "30df7fac3ef8047d9e57101134a6570a8bceb02e5b36fb97cb8f1b11c6c539d9",
     "docs/preview/own-servers-en.png": "ff27f6fd1993d2aa4bfad9fa7ce8ce10befdec4678152b341ff3d89509c6183d",
     "docs/preview/own-servers.png": "bd83fdb9c94184d65ab7c6ed98610d7c62192f77ee90918ccbb9213d898eb81a",
-    "docs/preview/dock-auth.png": "70265078d8a430068515fd92dc38e41aa1ce88b2791b16a6a17fdde0ecd1982c"
+    "docs/preview/dock-auth.png": "70265078d8a430068515fd92dc38e41aa1ce88b2791b16a6a17fdde0ecd1982c",
+    "lib/personal-original.mjs": "3f5c509adcdf325415e847b26b36e2ffd44d0cb38071345080289209043f50a4"
   },
   "executionRequirements": {
     ".local/bin/harness-vm-web": 448,
@@ -595,5 +600,21 @@
     ".local/bin/reverse-case": 493,
     ".local/bin/reverse-route": 493,
     ".dsh/toolchain/pentagi-cli.py": 448
+  },
+  "originalCapabilities": {
+    "enabledAtExport": false,
+    "settingFile": ".config/harness-original-capabilities",
+    "sharedHome": ".dsh-improved",
+    "isolatedRuntime": "tools/harness-original-capabilities",
+    "isolatedRuntimeIncluded": false,
+    "verifiedRuntimeEntriesAtCopy": 62988,
+    "originalPluginVersion": "1.1.77",
+    "patchesApplied": 58,
+    "patchesTotal": 63,
+    "patchesSkipped": 5,
+    "retainedRecoveryPoints": [
+      "ready-merged-capabilities-20261028-r1",
+      "ready-workbench-v30-20261028"
+    ]
   }
 }

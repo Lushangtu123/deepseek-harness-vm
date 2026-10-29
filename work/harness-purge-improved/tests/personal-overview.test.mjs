@@ -9,7 +9,7 @@ test('personal settings presents consent boundaries without mounting original pa
  const end=source.indexOf('\n\t\tconst REWIND_CSS',start);
  let legacyMounts=0;
  const scope={useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],
-  useEffect(){},readTheme:()=> 'light',translate:null,PURGE_CSS:'',
+  useEffect(){},readTheme:()=> 'light',translate:null,PURGE_CSS:'',OriginalCapabilitiesSwitch:()=>null,
   PurgifySection:()=>{legacyMounts++;return 'LEGACY_HOST_PATCH_CONTROLS';},
   RulesSection:()=>{legacyMounts++;return 'LEGACY_INJECTION_CONTROLS';},
   h:(type,props,...children)=>typeof type==='function'?type(props||{}):({type,props,children})};

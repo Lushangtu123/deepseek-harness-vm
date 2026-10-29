@@ -5,8 +5,11 @@ spec=importlib.util.spec_from_file_location('runtime_manager',Path(__file__).wit
 PREFIX='tools/harness-improved-runtime/node_modules/@deepseek-ai/'
 EXPECTED={PREFIX+name+'/lib/index.js' for name in ['dsh-tools','dsh-tool-bash','dsh-permission-presets','dsh-user-approval']}|{PREFIX+'dsh/package.json',PREFIX+'dsh/lib/bin.js'}
 
+ORIGINAL='tools/harness-original-capabilities/'
+EXPECTED|={ORIGINAL+'.personal-runtime-manifest.json',ORIGINAL+'lib/bin.js',ORIGINAL+'package.json'}|{ORIGINAL+'node_modules/@deepseek-ai/'+name+'/lib/index.js' for name in ['dsh-tools','dsh-tool-bash','dsh-permission-presets','dsh-user-approval']}
+
 class RuntimeCoverage(unittest.TestCase):
- def test_core_coverage_is_a_fixed_six_file_list_not_an_arbitrary_runtime_directory(self):
+ def test_core_coverage_is_a_fixed_daily_and_original_file_list_not_an_arbitrary_directory(self):
   self.assertEqual(getattr(m,'RECOVERY_RUNTIME_FILES',set()),EXPECTED)
   files={name:'a'*64 for name in EXPECTED};files[PREFIX+'dsh/providers/credentials.yml']='private'
   result=m.recovery_inventory({'files':files})
@@ -30,7 +33,7 @@ class RuntimeCoverage(unittest.TestCase):
    files={'tools/dsh-purge-personal-1.1.77-personal.1/client.js':'hash',**{name:'hash' for name in m.RECOVERY_TOOL_FILES|m.RECOVERY_CONFIG_FILES|EXPECTED|{m.RECOVERY_PLUGIN_ROOT+n+'/package.json' for n in m.RECOVERY_PLUGINS}}}
    data=self.status(files)
    self.assertEqual(data.get('runtimePackageVersion'),'0.2.1-rc.3')
-   self.assertEqual(data['recovery']['groups']['runtime']['filesChecked'],6)
+   self.assertEqual(data['recovery']['groups']['runtime']['filesChecked'],len(EXPECTED))
    self.assertEqual(data['recovery']['state'],'matches')
  def test_a_non_object_package_json_cannot_abort_the_rest_of_status_inspection(self):
   with tempfile.TemporaryDirectory() as self.temp:

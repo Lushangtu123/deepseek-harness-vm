@@ -2823,9 +2823,125 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 			return detectHostTheme();
 		}
 
+		function OriginalPromptEditor() {
+            const [text, setText] = useState("");
+            const [ready, setReady] = useState(false);
+            const [busy, setBusy] = useState(false);
+            const [notice, setNotice] = useState("");
+            useEffect(() => {
+                let cancelled = false;
+                apiJson("/dsh-purge/override").then(data => {
+                    if (cancelled) return;
+                    if (!data || data.ok === false) throw new Error("读取未确认");
+                    setText(typeof data.content === "string" ? data.content : "");
+                    setReady(true);
+                }).catch(() => { if (!cancelled) setNotice("提示词读取失败，请关闭后重新打开。"); });
+                return () => { cancelled = true; };
+            }, []);
+            const save = async () => {
+                if (!ready || busy) return;
+                setBusy(true); setNotice("");
+                try {
+                    const result = await apiJson("/dsh-purge/override", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: text }) });
+                    setNotice(result?.ok ? "已保存；请新建会话使用。" : "保存结果未确认，请重新打开核对，不会自动重发。");
+                } catch { setNotice("保存结果未确认，请重新打开核对，不会自动重发。"); }
+                finally { setBusy(false); }
+            };
+            return h("section", { className: "dshp-sec" },
+                h("h3", null, "原版提示词"),
+                h("textarea", { "aria-label": "原版提示词", value: text, disabled: !ready || busy,
+                    rows: 12, style: { width: "100%", boxSizing: "border-box", fontFamily: "monospace" },
+                    onChange: event => setText(event.target.value) }),
+                h("button", { type: "button", disabled: !ready || busy, onClick: save }, busy ? "保存中…" : "保存提示词"),
+                h("p", { role: "status" }, notice));
+        }
+
+        function createOriginalSwitchModel({ request, publish, onVerified }) {
+            let disposed = false, timer, deadline = 0, readGeneration = 0;
+            let state = { enabled: null, known: false, busy: false, confirm: null, notice: "正在核对原版能力…" };
+            const update = values => { if (!disposed) { state = { ...state, ...values }; publish(state); } };
+            const again = () => {
+                if (disposed) return;
+                if (performance.now() > deadline) {
+                    update({ busy: false, known: false, notice: "等待已结束，切换结果尚未确认。请点“核对当前状态”；不会自动重发。" }); return;
+                }
+                timer = setTimeout(refresh, 2000);
+            };
+            async function refresh() {
+                if (disposed) return;
+                clearTimeout(timer);
+                const generation = ++readGeneration;
+                try {
+                    const data = await request("GET");
+                    if (disposed || generation !== readGeneration) return;
+                    if (data?.ok !== true) throw new Error("unconfirmed");
+                    const operation = data.operation;
+                    if (operation?.state === "running") {
+                        if (!deadline) deadline = performance.now() + 180000;
+                        update({ busy: true, known: false, confirm: null, notice: "正在切换并重启服务，请稍候…" }); again(); return;
+                    }
+                    if (typeof data.enabled !== "boolean") throw new Error("unconfirmed");
+                    const matched = operation?.state === "succeeded" && operation.targetEnabled === data.enabled;
+                    update({ enabled: data.enabled, known: true, busy: false, confirm: null,
+                        notice: operation?.state === "unconfirmed" ? "上一笔切换结果未确认；下方显示刚核对的实际状态。不会自动重发。" : matched ? "切换完成。请重新加载页面，并新建会话使用。" : "已核对当前运行状态。" });
+                    deadline = 0;
+                    if (data.pluginStatus?.ready === true && data.pluginStatus.originalCapabilities?.enabled === data.enabled) onVerified(data.pluginStatus);
+                } catch {
+                    if (disposed || generation !== readGeneration) return;
+                    update({ known: false, confirm: null, notice: state.busy ? "切换中暂时无法读取状态，正在核对；不会重发操作。" : "状态读取失败，请点“核对当前状态”。" });
+                    if (state.busy) again();
+                }
+            }
+            return {
+                refresh,
+                select(enabled) { if (!disposed && state.known && !state.busy && typeof enabled === "boolean" && enabled !== state.enabled) update({ confirm: enabled }); },
+                cancel() { if (!state.busy) update({ confirm: null }); },
+                async confirm() {
+                    if (disposed || state.busy || !state.known || typeof state.confirm !== "boolean") return;
+                    const enabled = state.confirm, expectedEnabled = state.enabled;
+                    readGeneration++;
+                    deadline = performance.now() + 180000;
+                    update({ busy: true, known: false, confirm: null, notice: "正在提交切换请求…" });
+                    try { await request("POST", { enabled, expectedEnabled }); }
+                    catch { update({ notice: "提交结果尚未确认，正在只读核对；不会自动重发。" }); }
+                    if (!disposed) await refresh();
+                },
+                dispose() { disposed = true; clearTimeout(timer); },
+            };
+        }
+
+        function OriginalCapabilitiesSwitch({ onVerified }) {
+            const [state, setState] = useState({ enabled: null, known: false, busy: false, confirm: null, notice: "正在核对原版能力…" });
+            const model = useRef(null);
+            useEffect(() => {
+                const controller = createOriginalSwitchModel({
+                    request: (method, body) => apiJson("/__harness/capabilities", { method,
+                        headers: { "x-harness-local": "1", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
+                        ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
+                    publish: setState, onVerified,
+                });
+                model.current = controller; controller.refresh();
+                return () => { model.current = null; controller.dispose(); };
+            }, []);
+            return h("section", { className: "dshp-sec", "aria-label": "原版能力开关" },
+                h("label", { style: { display: "flex", gap: "10px", alignItems: "center", fontWeight: "600" } },
+                    h("input", { type: "checkbox", role: "switch", "aria-label": "启用原版能力",
+                        checked: state.enabled === true, disabled: !state.known || state.busy,
+                        onChange: event => model.current?.select(event.target.checked) }), "原版能力"),
+                h("p", { role: "status", "aria-live": "polite" }, state.notice),
+                h("p", null, "切换会重启 Harness 服务，请先等待任务结束；终端连接可能中断。切换后新建会话。"),
+                typeof state.confirm === "boolean" ? h("div", { role: "group", "aria-label": "确认切换原版能力" },
+                    h("p", null, state.confirm ? "启用后，提示词、权限与沙盒按原版补丁运行。确认现在启用并重启？" : "确认停用原版能力并重启，回到日常运行时？"),
+                    h("button", { type: "button", onClick: () => model.current?.confirm() }, state.confirm ? "确认启用并重启" : "确认停用并重启"),
+                    h("button", { type: "button", onClick: () => model.current?.cancel() }, "取消")) : null,
+                h("button", { type: "button", disabled: state.busy, onClick: () => model.current?.refresh() }, "核对当前状态"),
+                h("button", { type: "button", disabled: state.busy, onClick: () => window.location.reload() }, "重新加载 Harness"));
+        }
+
 		function SettingsRoot(props) {
 			const t = typeof props.t === "function" ? props.t : ((key) => key);
 			const [theme, setTheme] = useState(readTheme);
+            const [capabilities, setCapabilities] = useState(null);
 			useEffect(() => {
 				let cancelled = false;
 				let timer = 0;
@@ -2858,17 +2974,22 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 			translate = t;
 			return h("div", { className: "dshp-root", "data-theme": theme },
 				h("style", null, PURGE_CSS),
+                h(OriginalCapabilitiesSwitch, { onVerified: setCapabilities }),
 				h("section", { className: "dshp-sec" },
-					h("h3", null, "改进版 · VM 独立权限"),
+					h("h3", null, "合并版 · 原版能力"),
+                    h("p", { role: "status" }, capabilities ? (capabilities.originalCapabilities.enabled ? "原版能力已启用：原版运行时补丁与提示词生效。" : "原版能力已停用：当前采用日常改进版。") : "正在核对当前模式；尚未确认。"),
 					h("p", null, "使用独立官方 Harness 运行时。当前权限与执行方式以会话权限菜单为准。"),
 					h("ul", null,
-						h("li", null, "用户已授权的 VM 完全访问档位可自动执行，无需逐个工具批准；人工审批档位仍逐次确认。"),
-						h("li", null, "通过官方权限配置运行，插件不自动切换现有会话、不安装权限绕过补丁。Mac 与 VM 隔离设置独立。"),
+						h("li", null, capabilities?.originalCapabilities.enabled ? "原版能力启用期间，提示词、权限与沙盒按原版补丁运行；会话权限标签不代表日常模式的审批保障。" : "用户已授权的 VM 完全访问档位可自动执行，无需逐个工具批准；人工审批档位仍逐次确认。"),
+						h("li", null, "日常模式沿用官方权限配置；显式启用原版能力时切换至专用原版运行时。Mac 与 VM 隔离设置独立。"),
 						h("li", null, "证据默认是声明；匹配真实执行回执才可升级。凭据默认隐藏。"),
 					),
-					h("p", null, "本页不提供原版 Apply、权限绕过、提示词注入或自动更新。重启和更新请使用本机改进版入口。"),
-					h("p", null, "完整原版保留在独立配置中，需要时使用“使用完整原版.command”；Mac 不授予完全访问。"),
+					h("p", null, "使用上方开关启用或停用原版能力。原有命令入口继续保留；项目、会话和工作台共用。"),
+					h("p", null, "完整原版安装继续保留；模式开关不会覆盖它。原版自动更新不用于合并版。Mac 不授予完全访问。"),
+                    capabilities?.originalCapabilities.enabled ? h("p", null, "补丁状态：", String(capabilities.patches_applied), " / ", String(capabilities.patches_total), " 已应用；跳过 ", String(capabilities.patches_skipped)) : null,
 				),
+                capabilities?.originalCapabilities.enabled ? h(OriginalPromptEditor) : null,
+                capabilities?.originalCapabilities.enabled ? h(RulesSection) : null,
 			);
 		}
 
