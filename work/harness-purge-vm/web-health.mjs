@@ -120,13 +120,48 @@ export function chooseWidgetPlacement(image, controls, width, height) {
  return best;
 }
 
-export function installFloatingLayout(choose) {
+export function planPetDock(corner,width,height,artWidth,artHeight) {
+ if(!['top-left','top-right','bottom-left','bottom-right'].includes(corner)||![width,height,artWidth,artHeight].every(Number.isFinite)||width<160||height<100||artWidth<=0||artHeight<=0)return null;
+ const limit=Math.min(200,Math.max(56,width-360),height-24),scale=Math.min(1,limit/Math.max(artWidth,artHeight));
+ const w=artWidth*scale,h=artHeight*scale,lane=Math.ceil(w+24),left=corner.endsWith('left');
+ return{x:left?12:width-w-12,y:corner.startsWith('top')?12:height-h-12,width:w,height:h,lane,leftLane:left?lane:0,rootLimit:limit/.5945};
+}
+
+export function dragPetCorner(start,end,width,height) {
+ if(!start||![start.x,start.y,start.width,start.height,start.pointerX,start.pointerY,end?.clientX,end?.clientY,width,height].every(Number.isFinite)||end.clientX===0&&end.clientY===0)return null;
+ const dx=end.clientX-start.pointerX,dy=end.clientY-start.pointerY;
+ if(dx*dx+dy*dy<36)return null;
+ const x=start.x+dx,y=start.y+dy,h=x<=36?'left':x+start.width>=width-36?'right':null,v=y<=36?'top':y+start.height>=height-36?'bottom':null;
+ return h&&v?v+'-'+h:'free';
+}
+
+export function installFloatingLayout(choose,planDock,dragCorner) {
  const root=document.getElementById('root');
  if(!root||!document.querySelectorAll||document.getElementById('harness-floating-layout'))return;
  const style=document.createElement('style');style.id='harness-floating-layout';
  style.textContent='#root{height:calc(100dvh - 56px)!important}body:after{content:"";position:fixed;left:0;right:0;bottom:0;height:55px;background:var(--dsw-alias-bg-base,#fff);border-top:1px solid var(--dsw-alias-border-l1,#e4ebf5);z-index:8000;pointer-events:none}#harness-vm-identity{left:12px!important;right:auto!important;bottom:8px!important;max-width:calc(100vw - 24px)!important}#harness-vm-identity:not([open]) summary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#harness-vm-identity[open]{max-height:calc(100dvh - 32px);overflow:auto}:is(.dshwv-root,.dshwv-menu)[data-harness-occluded="true"]{opacity:0!important}:is(.dshwv-root,.dshwv-menu)[data-harness-occluded="true"],:is(.dshwv-root,.dshwv-menu)[data-harness-occluded="true"] *{pointer-events:none!important}';
  document.head.appendChild(style);
- let pending=false,dragging=false;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
+ style.textContent+=':is(.dshwv-pop)[data-harness-occluded="true"]{opacity:0!important;pointer-events:none!important}:is(.dshwv-pop)[data-harness-occluded="true"] *{pointer-events:none!important}';
+ if(planDock)style.textContent+='#root{width:calc(100% - var(--harness-pet-lane,0px))!important;margin-left:var(--harness-pet-left-lane,0px)!important}#root .dshp-launch{right:calc(16px + var(--harness-pet-lane,0px) - var(--harness-pet-left-lane,0px))!important;bottom:calc(16px + var(--harness-pet-footer-inset,0px))!important}#harness-vm-identity{left:calc(12px + var(--harness-pet-left-lane,0px))!important;max-width:calc(100vw - 24px - var(--harness-pet-lane,0px))!important}';
+ let pending=false,dragging=false,dragStart=null,corner='free',storageAvailable=true;const writtenStyles=new WeakMap(),hiddenStates=new WeakMap();
+ const corners=['top-left','top-right','bottom-left','bottom-right','free'];
+ if(planDock)try{const saved=localStorage.getItem('harness-pet-corner-v1');if(corners.includes(saved))corner=saved}catch{storageAvailable=false}
+ const setProperty=(node,key,value)=>{if(node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)};
+ const changeCorner=value=>{corner=value;try{localStorage.setItem('harness-pet-corner-v1',value)}catch{storageAvailable=false}schedule()};
+ const dockMenus=new WeakSet();
+ const addDockMenu=()=>{
+  if(!planDock)return;
+  for(const menu of document.querySelectorAll('.dshwv-menu')){
+   if(dockMenus.has(menu))continue;dockMenus.add(menu);
+   const row=document.createElement('div');row.className='harness-pet-dock';row.style.cssText='padding:8px;display:flex;gap:4px;flex-wrap:wrap;border-top:1px solid #dce5f2';
+   const label=document.createElement('span');label.textContent='位置';label.style.cssText='width:100%;font-size:12px';row.appendChild(label);
+   for(const [value,text]of [['top-left','左上'],['top-right','右上'],['bottom-left','左下'],['bottom-right','右下'],['free','自由']]){
+    const button=document.createElement('button');button.type='button';button.textContent=text;button.setAttribute('aria-label',value==='free'?'桌宠自由拖动':'桌宠停靠'+text+'角');button.style.cssText='padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#24365a;cursor:pointer';
+    button.addEventListener('click',()=>changeCorner(value));row.appendChild(button);
+   }
+   menu.appendChild(row);
+  }
+ };
  const setHidden=(surface,hidden)=>{
   if(hidden&&!hiddenStates.has(surface)){
    hiddenStates.set(surface,{inert:surface.getAttribute('inert'),ariaHidden:surface.getAttribute('aria-hidden')});
@@ -146,22 +181,43 @@ export function installFloatingLayout(choose) {
  };
  const update=()=>{
   pending=false;
+  addDockMenu();
   const widget=document.querySelector('.dshwv-root'),img=widget?.querySelector('.dshwv-img');
-  if(!widget||!img||dragging)return;
+  if(!widget||!img){if(planDock)for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){setProperty(node,'--harness-pet-lane','0px');setProperty(node,'--harness-pet-left-lane','0px');setProperty(node,'--harness-pet-footer-inset','0px')}return}
+  if(dragging)return;
+  let dock=planDock?.(corner,innerWidth,innerHeight,img.getBoundingClientRect().width,img.getBoundingClientRect().height);
+  if(planDock){
+   for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){
+    setProperty(node,'--harness-pet-lane',(dock?.lane??0)+'px');setProperty(node,'--harness-pet-left-lane',(dock?.leftLane??0)+'px');
+    setProperty(node,'--harness-pet-footer-inset',dock?'56px':'0px');
+   }
+   const limit=dock?dock.rootLimit+'px':'';
+   if(widget.style.maxWidth!==limit)widget.style.maxWidth=limit;
+   if(widget.style.maxHeight!==limit)widget.style.maxHeight=limit;
+   dock=planDock(corner,innerWidth,innerHeight,img.getBoundingClientRect().width,img.getBoundingClientRect().height);
+   widget.setAttribute('data-harness-corner',dock?corner:'free');
+   for(const menu of document.querySelectorAll('.dshwv-menu'))for(const row of menu.querySelectorAll('.harness-pet-dock')){
+    const label=row.querySelector('span');const text='位置：'+({'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下',free:'自由'}[corner])+(storageAvailable?'':'（仅本页）');if(label&&label.textContent!==text)label.textContent=text;
+    for(const button of row.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.getAttribute('aria-label')===(corner==='free'?'桌宠自由拖动':'桌宠停靠'+{'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下'}[corner]+'角')));
+   }
+  }
   const image=img.getBoundingClientRect();if(image.width<=0||image.height<=0)return;
   let left=image.left,top=image.top,right=image.right,bottom=image.bottom;
   for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open')){
    const css=getComputedStyle(popup),r=popup.getBoundingClientRect();
    if(css.display!=='none'&&css.visibility==='visible'&&Number(css.opacity)>.01&&r.width&&r.height){left=Math.min(left,r.left);top=Math.min(top,r.top);right=Math.max(right,r.right);bottom=Math.max(bottom,r.bottom)}
   }
-  const bounds={x:left,y:top,width:right-left,height:bottom-top};
+  const bounds=dock?{x:image.left,y:image.top,width:image.width,height:image.height}:{x:left,y:top,width:right-left,height:bottom-top};
   const controls=[];
   for(const el of document.querySelectorAll('button,input,textarea,select,a[href],summary,[role="switch"],[role="checkbox"],[role="combobox"],[role="menuitem"],[role="button"],[role="tab"],[role="treeitem"],[contenteditable="true"]')){
    if(el.closest('#harness-vm-identity,[class*="dshwv-"]'))continue;
    const r=el.getBoundingClientRect();
-   if(r.width>0&&r.height>0&&r.x<innerWidth&&r.y<innerHeight-56&&r.right>0&&r.bottom>0&&getComputedStyle(el).visibility==='visible')controls.push({x:r.x,y:r.y,width:r.width,height:r.height});
+   if(r.width>0&&r.height>0&&r.x<innerWidth&&r.y<innerHeight-(dock?0:56)&&r.right>0&&r.bottom>0&&getComputedStyle(el).visibility==='visible')controls.push({x:r.x,y:r.y,width:r.width,height:r.height});
   }
-  const placement=document.getElementById('harness-vm-identity')?.open?null:choose({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},controls,innerWidth,innerHeight);
+  const overlaps=(r,c)=>r.left<c.x+c.width+4&&r.right>c.x-4&&r.top<c.y+c.height+4&&r.bottom>c.y-4;
+  for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open'))setHidden(popup,!!dock&&controls.some(c=>overlaps(popup.getBoundingClientRect(),c)));
+  const dockBlocked=dock&&controls.some(c=>overlaps({left:dock.x,right:dock.x+dock.width,top:dock.y,bottom:dock.y+dock.height},c));
+  const placement=document.getElementById('harness-vm-identity')?.open||dockBlocked?null:dock??choose({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},controls,innerWidth,innerHeight);
   const hidden=placement===null;
   setHidden(widget,hidden);
   for(const menu of document.querySelectorAll('.dshwv-menu'))setHidden(menu,hidden||!menu.classList.contains('dshwv-menu-open'));
@@ -172,6 +228,12 @@ export function installFloatingLayout(choose) {
     writtenStyles.set(widget,widget.getAttribute('style'));
    }
   }
+  if(dock)for(const menu of document.querySelectorAll('.dshwv-menu'))if(menu.classList.contains('dshwv-menu-open')){
+   menu.style.maxWidth=(innerWidth-16)+'px';menu.style.maxHeight=(innerHeight-16)+'px';menu.style.overflowY='auto';
+   const r=menu.getBoundingClientRect(),x=corner.endsWith('left')?12:innerWidth-r.width-12,y=corner.startsWith('top')?12+dock.height+8:innerHeight-dock.height-r.height-20;
+   Object.assign(menu.style,{left:Math.max(8,Math.min(x,innerWidth-r.width-8))+'px',top:Math.max(8,Math.min(y,innerHeight-r.height-8))+'px',right:'auto',bottom:'auto'});
+   writtenStyles.set(menu,menu.getAttribute('style'));
+  }
  };
  const schedule=()=>{if(!pending){pending=true;setTimeout(update,100)}};
  if(typeof MutationObserver!=='undefined')new MutationObserver(records=>{
@@ -179,9 +241,9 @@ export function installFloatingLayout(choose) {
  }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open']});
  if(typeof ResizeObserver!=='undefined'){const sizes=new ResizeObserver(schedule);sizes.observe(root)}
  window.addEventListener('resize',schedule);document.addEventListener('scroll',schedule,true);
- document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-root'))dragging=true},true);
- document.addEventListener('pointerup',()=>{dragging=false;schedule()},true);
- document.addEventListener('pointercancel',()=>{dragging=false;schedule()},true);
+ document.addEventListener('pointerdown',event=>{if(event.target.closest?.('.dshwv-root')){dragging=true;const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();dragStart=r?{x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY}:null}},true);
+ document.addEventListener('pointerup',event=>{if(dragging&&dragCorner){const value=dragCorner(dragStart,event,innerWidth,innerHeight);if(value)changeCorner(value)}dragStart=null;dragging=false;schedule()},true);
+ document.addEventListener('pointercancel',()=>{dragStart=null;dragging=false;schedule()},true);
  schedule();
 }
 
@@ -215,7 +277,7 @@ export const ENVIRONMENT_BANNER = `(() => {
   const cancelled=new Promise((_,reject)=>{rejectAbort=reject});
   const data=await Promise.race([cancelled,(async()=>{const response=await fetch('/__harness/environment',{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('unavailable');return response.json()})()]);
   latest=data;checkedClock=clock();failed=false;clearTimeout(expiry);expiry=setTimeout(render,60000);expiry?.unref?.();
-  if(data.mode==='improved')(${installFloatingLayout.toString()})(${chooseWidgetPlacement.toString()});
+  if(data.mode==='improved')(${installFloatingLayout.toString()})(${chooseWidgetPlacement.toString()},${planPetDock.toString()},${dragPetCorner.toString()});
   detail='配置目录：'+data.configDir+'\\nHarness 安装包版本：'+(data.runtimePackageVersion||'未确认')+'\\n恢复点（程序、工具和配置）：'+(data.recovery?.name||'无')+(data.recovery?.createdAt?'\\n建立时间：'+new Date(data.recovery.createdAt).toLocaleString('zh-CN'):'')+'\\n运行状态核对：'+new Date(data.observedAt).toLocaleTimeString('zh-CN')+'\\n'+Object.entries({program:'改进版程序',runtime:'核心运行时',tools:'工具',config:'配置',plugins:'已导入插件'}).map(([key,label])=>label+'：'+({matches:'已覆盖',older:'未覆盖最新',missing:'未建立',uncovered:'未纳入核对'}[data.recovery?.groups?.[key]?.state]||'未验证')).join('；')+(data.recovery?.uncoveredFiles?.length?'\\n未覆盖文件：'+data.recovery.uncoveredFiles.join('、'):'')+(data.recovery?.differentFiles?.length?'\\n变更文件：'+data.recovery.differentFiles.join('、')+(data.recovery.differenceDetailsTruncated?'（仅显示部分）':''):'')+(data.recovery?.launchAgentsMatch===false?'\\n宿主启动配置与恢复点不同。':'')+(data.recovery?.state==='older'?'\\n建议：先确认改动来源，再建立新恢复点；不会自动覆盖文件。':'')+'\\n覆盖仅指所列文件，不代表之后新增的数据已备份。'+(data.modeFileMatches?'':'\\n版本标记与实际进程不一致，请检查启动入口。');
  }catch{failed=true;if(!latest)info.textContent='无法核对实际进程，请确认 VM 已启动后刷新。';}
  finally{clearTimeout(timer);controller.signal.removeEventListener('abort',abort);busy=false;refresh.disabled=false;render()}}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "workbench-v26",
+  "configuration": "workbench-v27b",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -459,7 +459,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-workbench-v26-20261028",
+  "recoveryPoint": "ready-workbench-v27b-20261028",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
