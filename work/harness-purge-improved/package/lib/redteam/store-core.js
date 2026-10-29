@@ -3168,7 +3168,7 @@ export class RedteamStore {
     })), 3)
     const shotBriefOf = (sh) => ({
       id: Number(sh.id), url: this.shotUrlOf(id, sh), label: sh.label || '', note: sh.note || '',
-      kind: sh.kind || 'screenshot', mime: sh.mime || 'image/png', bytes: Number(sh.bytes) || 0,
+      kind: sh.kind || 'screenshot', mime: sh.mime || 'image/png', bytes: Number(sh.bytes) || 0, sha256: sh.sha256 || '',
       width: sh.width === null || sh.width === undefined ? null : Number(sh.width),
       height: sh.height === null || sh.height === undefined ? null : Number(sh.height),
       target: sh.target || '', captured_at: sh.captured_at || '', source_ref: sh.source_ref || '',
@@ -3195,7 +3195,7 @@ export class RedteamStore {
        交付整包时用 options.shotRef='relative' 让 markdown 走 `shots/xxx.png`，
        与靶标目录里的 shots/ 一起拷走即可。 */
     const shotRefOf = (sh) => (options.shotRef === 'relative'
-      ? sh.url
+      ? String(sh.url).split('/').map(part => encodeURIComponent(part).replace(/[()]/g, char => char === '(' ? '%28' : '%29')).join('/')
       : join(this.shotsDirOf(id), String(sh.url).replace(/^shots\//, '')))
 
     /* ── 链路排序：阶段顺序（信息收集 → 互联网 → 边界 → 内网 → 靶标）+ 阶段内按动作先后 ──
@@ -3366,6 +3366,7 @@ export class RedteamStore {
        ⚠️ 两条长度纪律：请求体保完整（Yakit 要能直接重放，截断就废了）；
        响应体只做验证，截到 1000 字符并标长度。 */
     const md = []
+    const reportAttachments = new Map()
     const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳']
     const AGENT_LABEL = (a) => ROLE_TITLES[a] || a || "unlabeled role"
     const oneLine = (t, n) => String(t === null || t === undefined ? '' : t).replace(/\s*\n+\s*/g, ' ').trim().slice(0, n || 300)
@@ -3651,6 +3652,10 @@ export class RedteamStore {
         for (const sh of x.shots) {
           const alt = String(sh.label || ("evidence " + sh.id)).replace(/[\[\]]/g, '')
           md.push('![' + alt + '](' + shotRefOf(sh) + ')', '')
+          const attachment = { id: sh.id, path: sh.url, bytes: sh.bytes, sha256: sh.sha256 }
+          const prior = reportAttachments.get(sh.url)
+          if (prior && (prior.bytes !== sh.bytes || prior.sha256 !== sh.sha256)) throw new Error('Conflicting report attachment metadata: ' + sh.url)
+          reportAttachments.set(sh.url, attachment)
           const cap = []
           if (sh.label) cap.push(sh.label)
           else if (sh.target) cap.push('`' + sh.target + '`')
@@ -3800,7 +3805,7 @@ export class RedteamStore {
     const coverage = { totalHits: rows.length, countedHits: summary.count, totalItems: ordered.length,
       returnedItems: detailItems.length, offset, nextOffset: offset + detailItems.length < ordered.length ? offset + detailItems.length : null,
       complete: offset === 0 && detailItems.length === ordered.length, markdownComplete: true }
-    return this.redactResult(id, { items: detailItems, stages: detailStages, summary, coverage, markdown: md.join('\n'), target: targetName })
+    return this.redactResult(id, { items: detailItems, stages: detailStages, summary, coverage, attachments: Array.from(reportAttachments.values()), markdown: md.join('\n'), target: targetName })
   }
 
   /**
