@@ -5,9 +5,9 @@ import * as health from './web-health.mjs';
 
 const rect=(x,y,width,height)=>({x,y,left:x,top:y,right:x+width,bottom:y+height,width,height});
 function fixture({corner='bottom-right',controls=[],flipped=false}={}){
- const timers=[],events=new Map(),saved=new Map([['harness-pet-corner-v1',corner]]);
+ let notify;const timers=[],events=new Map(),saved=new Map([['harness-pet-corner-v1',corner]]);
  const style=()=>({setProperty(k,v){this[k]=v},getPropertyValue(k){return this[k]??''}});
- const el=()=>({style:style(),attrs:new Map(),children:[],appendChild(e){this.children.push(e)},setAttribute(k,v){this.attrs.set(k,String(v))},getAttribute(k){return this.attrs.get(k)??null},removeAttribute(k){this.attrs.delete(k)},contains(){return false},querySelectorAll(){return[]},addEventListener(){}});
+ const el=()=>({style:style(),attrs:new Map(),children:[],appendChild(e){this.children.push(e)},setAttribute(k,v){this.attrs.set(k,String(v))},getAttribute(k){return k==='style'?JSON.stringify(this.style):this.attrs.get(k)??null},removeAttribute(k){this.attrs.delete(k)},contains(){return false},querySelectorAll(){return[]},addEventListener(){}});
  const app=el(),widget=el(),popup=el(),panel=el();panel.open=false;let squash=1,transition=0,computedDimensions=true,nativeActive=true;
  widget.style.left='965px';widget.style.top='405px';widget.classList={contains:c=>c==='dshwv-left'&&flipped||c==='dshwv-dragging'&&nativeActive};
  const size=()=>Math.min(300,parseFloat(widget.style.maxWidth)||Infinity),art=()=>size()*.5945;
@@ -17,9 +17,9 @@ function fixture({corner='bottom-right',controls=[],flipped=false}={}){
  popup.getBoundingClientRect=()=>{const b=widget.getBoundingClientRect(),w=size(),h=w*700/1026;return rect(b.left+(flipped?-parseFloat(popup.style.left||0):parseFloat(popup.style.left||0)),b.top+parseFloat(popup.style.top||0),w,h)};
  const document={head:{appendChild(){}},body:{},activeElement:null,getElementById:id=>id==='root'?app:id==='harness-vm-identity'?panel:null,createElement:el,querySelector:q=>q==='.dshwv-root'?widget:q==='.dshwv-img'?image:null,querySelectorAll:q=>q==='.dshwv-menu'?[]:controls.map(r=>({closest:()=>null,getBoundingClientRect:()=>r})),addEventListener:(n,f)=>events.set(n,f)};
  const getComputedStyle=e=>({visibility:'visible',display:'block',opacity:e.getAttribute?.('data-harness-occluded')==='true'?'0':'1',width:computedDimensions?(e===image?art():size())+'px':'auto',height:computedDimensions?(e===image?art():e===popup?size()*700/1026:size())+'px':'auto'});
- const context={document,window:{addEventListener:(n,f)=>events.set(n,f)},innerWidth:1280,innerHeight:720,getComputedStyle,localStorage:{getItem:k=>saved.get(k)??null,setItem:(k,v)=>saved.set(k,v)},queueMicrotask:f=>f(),setTimeout:f=>timers.push(f)};
+ const context={MutationObserver:class{constructor(callback){notify=callback}observe(){}},document,window:{addEventListener:(n,f)=>events.set(n,f)},innerWidth:1280,innerHeight:720,getComputedStyle,localStorage:{getItem:k=>saved.get(k)??null,setItem:(k,v)=>saved.set(k,v)},queueMicrotask:f=>f(),setTimeout:f=>timers.push(f)};
  vm.runInNewContext('('+health.installFloatingLayout.toString()+')('+health.chooseWidgetPlacement.toString()+','+health.planPetDock.toString()+','+health.dragPetCorner.toString()+')',context);
- return{nativeEnds(){nativeActive=false},panel,context,widget,popup,image,saved,events,run(){let n=0;while(timers.length&&n++<20)timers.shift()();assert.ok(n<20)},refresh(){events.get('resize')();this.run()},animate(s,t=0){squash=s;transition=t;this.refresh()},useNativeRectFallback(){computedDimensions=false;const read=image.getBoundingClientRect;image.getBoundingClientRect=()=>Object.create(read());this.refresh()}};
+ return{notify(records){notify(records)},timerCount(){return timers.length},nativeEnds(){nativeActive=false},panel,context,widget,popup,image,saved,events,run(){let n=0;while(timers.length&&n++<20)timers.shift()();assert.ok(n<20)},refresh(){events.get('resize')();this.run()},animate(s,t=0){squash=s;transition=t;this.refresh()},useNativeRectFallback(){computedDimensions=false;const read=image.getBoundingClientRect;image.getBoundingClientRect=()=>Object.create(read());this.refresh()}};
 }
 
 test('Native squish and root transition frames cannot feed back into dock coordinates',()=>{
@@ -117,4 +117,25 @@ test('A click rejected by the original hit or menu guard cannot become a host dr
  const f=fixture();f.run();f.nativeEnds();f.events.get('pointerdown')(pointerDown(f));
  f.events.get('pointermove')({pointerId:1,buttons:1,clientX:1160,clientY:620});f.events.get('pointerup')({pointerId:1,buttons:0,clientX:1160,clientY:620});f.run();
  assert.equal(f.saved.get('harness-pet-corner-v1'),'bottom-right');
+});
+
+test('Native anchor replays cannot paint a docked pet at an old position while the menu resyncs',()=>{
+ for(const corner of ['top-left','top-right','bottom-left','bottom-right']){
+  const f=fixture({corner});f.run();f.nativeEnds();const stable=[f.widget.style.left,f.widget.style.top];
+  for(const [left,top] of [['319px','193px'],['315px','190px']]){
+   f.widget.style.left=left;f.widget.style.top=top;
+   f.notify([{target:f.widget,attributeName:'style'}]);
+   for(const [actual,want] of [f.widget.style.left,f.widget.style.top].map((v,i)=>[parseFloat(v),parseFloat(stable[i])]))assert.ok(Math.abs(actual-want)<.000001,'Reconcile before a delayed layout timer can paint the stale native anchor');
+   f.notify([{target:f.widget,attributeName:'style'}]);
+   assert.equal(f.timerCount(),0,'Our own correction must not schedule a feedback loop');
+  }
+ }
+});
+
+test('Immediate dock reconciliation leaves an accepted native drag in control',()=>{
+ const f=fixture();f.run();f.events.get('pointerdown')(pointerDown(f));
+ f.widget.style.left='500px';f.widget.style.top='270px';
+ f.notify([{target:f.widget,attributeName:'style'}]);f.run();
+ assert.equal(f.widget.style.left,'500px');assert.equal(f.widget.style.top,'270px');
+ assert.equal(f.saved.get('harness-pet-corner-v1'),'bottom-right','A moving gesture has not committed a new preset');
 });

@@ -268,7 +268,6 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
    return{x:paint.x,y:paint.y,left:paint.left,top:paint.top,right:paint.right,bottom:paint.bottom,width:paint.width,height:paint.height,originX:box.left,originY:box.top,rootWidth:box.width,flipped:false};
   };
  const update=()=>{
-  pending=false;
   addDockMenu();
   const widget=document.querySelector('.dshwv-root'),img=widget?.querySelector('.dshwv-img');
   const pluginSwitch=document.querySelector('[role="switch"][aria-label="Enable dsh-whale-widget"]'),componentSwitch=document.querySelector('[role="switch"][aria-label="Enable component dsh-whale-widget"]');
@@ -337,9 +336,16 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
    writtenStyles.set(menu,menu.getAttribute('style'));
   }
  };
- const schedule=()=>{if(!pending){pending=true;setTimeout(update,100)}};
+ const schedule=()=>{if(!pending){pending=true;setTimeout(()=>{pending=false;update()},100)}};
  if(typeof MutationObserver!=='undefined')new MutationObserver(records=>{
-  if(records.some(r=>r.attributeName==='open'||(!r.target.closest?.('#harness-vm-identity')&&!(r.attributeName==='style'&&writtenStyles.get(r.target)===r.target.getAttribute?.('style')))))schedule();
+  const changed=records.filter(r=>r.attributeName==='open'||(!r.target.closest?.('#harness-vm-identity')&&!(r.attributeName==='style'&&writtenStyles.get(r.target)===r.target.getAttribute?.('style'))));
+  if(!changed.length)return;
+  const widget=document.querySelector('.dshwv-root');
+  // Native menu config reload replays its saved anchors now and after 500ms.
+  // Reconcile an explicit dock in this observer microtask, before either stale
+  // coordinate can paint. Keep native dragging and other page work batched.
+  if(planDock&&corner!=='free'&&!widget?.classList?.contains('dshwv-dragging')&&changed.some(r=>r.target===widget&&['style','class'].includes(r.attributeName)))update();
+  else schedule();
  }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class','open','aria-checked']});
  if(typeof ResizeObserver!=='undefined'){const sizes=new ResizeObserver(schedule);sizes.observe(root)}
  window.addEventListener('resize',schedule);window.addEventListener('focus',schedule);document.addEventListener('visibilitychange',schedule);document.addEventListener('scroll',schedule,true);
