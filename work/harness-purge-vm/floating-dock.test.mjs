@@ -33,10 +33,10 @@ test('Narrow docking fits the pet while retaining usable app width and mirrored 
  assert.equal(p.x,12);assert.equal(p.y,12);assert.ok(p.width<=65);assert.ok(425-p.lane>=330);assert.equal(p.leftLane,p.lane);
  assert.equal(health.planPetDock('bad',425,664,100,100),null);
 });
-test('Manual drags release presets to native snapping without committing cancelled or small movements',()=>{
+test('Manual drags select a corner or free placement without committing cancelled or small movements',()=>{
  assert.equal(typeof health.dragPetCorner,'function');
  const start={x:1062,y:285,width:171,height:171,pointerX:1165,pointerY:380};
- assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:640},1247,686),'free');
+ assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:640},1247,686),'bottom-right');
  assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:300},1247,686),'free');
  assert.equal(health.dragPetCorner(start,{clientX:1165,clientY:381},1247,686),null);
  assert.equal(health.dragPetCorner(start,{clientX:0,clientY:0},1247,686),null);
@@ -63,4 +63,13 @@ test('A top-corner dock keeps the original upward-opening pet menu inside the vi
 test('Removing the pet releases its reserved lane',()=>{
  const f=fixture();f.run();assert.ok(parseFloat(f.app.style['--harness-pet-lane'])>0);
  f.removePet();f.run();assert.equal(f.app.style['--harness-pet-lane'],'0px');
+});
+
+test('Dropping the visible artwork near both viewport edges selects that corner',()=>{
+ const start={x:500,y:250,width:160,height:160,pointerX:580,pointerY:330};
+ for(const [clientX,clientY,corner] of [[92,92,'top-left'],[1156,92,'top-right'],[92,594,'bottom-left'],[1156,594,'bottom-right']]){
+  assert.equal(health.dragPetCorner(start,{clientX,clientY},1247,686),corner);
+ }
+ assert.equal(health.dragPetCorner(start,{clientX:92,clientY:330},1247,686),'free','One edge alone must not select a corner');
+ assert.equal(health.dragPetCorner(start,{clientX:700,clientY:400},1247,686),'free');
 });

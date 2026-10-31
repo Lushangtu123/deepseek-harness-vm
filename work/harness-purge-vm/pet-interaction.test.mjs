@@ -41,10 +41,10 @@ test('A balance popup with no unoccupied gap falls back to the original visible 
 test('Top-corner balance bubbles stay inside the viewport in both native flip orientations',()=>{
  for(const flipped of [false,true]){const f=fixture({corner:'top-left',flipped});f.run();const r=f.popup.getBoundingClientRect();assert.ok(r.left>=8&&r.top>=8&&r.right<=1272&&r.bottom<=712,JSON.stringify(r));assert.equal(f.popup.getAttribute('data-harness-occluded'),'false')}
 });
-test('Manual drag returns position ownership to original native snap settings instead of a second snapper',()=>{
+test('Manual drag near both edges commits a corner only after crossing the native movement threshold',()=>{
  const start={x:1088,y:528,width:180,height:180,pointerX:1178,pointerY:618};
- assert.equal(health.dragPetCorner(start,{clientX:1178,clientY:623},1280,720),'free','Original 3px drag threshold must also release our preset');
- assert.equal(health.dragPetCorner(start,{clientX:1178,clientY:680},1280,720),'free','Do not duplicate the original edge snapper');
+ assert.equal(health.dragPetCorner(start,{clientX:1178,clientY:623},1280,720),'bottom-right');
+ assert.equal(health.dragPetCorner(start,{clientX:1178,clientY:680},1280,720),'bottom-right');
  assert.equal(health.dragPetCorner(start,{clientX:1179,clientY:618},1280,720),null);assert.equal(health.dragPetCorner(start,{clientX:0,clientY:0},1280,720),null);
 });
 test('Interacting with a bubble cannot release a preset as though it were dragging the character',()=>{
@@ -65,10 +65,29 @@ test('Fallback geometry retains native DOMRect prototype properties when compute
 });
 
 const pointerDown=f=>({target:{closest:q=>q==='.dshwv-img'?f.image:null},pointerType:'mouse',pointerId:1,button:0,buttons:1,clientX:1180,clientY:620});
+test('A native drag dropped at a corner reserves space rather than being moved away by free avoidance',()=>{
+ const f=fixture({corner:'free'});f.run();const image=f.image.getBoundingClientRect();
+ const clientX=image.left+image.width/2,clientY=image.top+image.height/2;
+ f.events.get('pointerdown')({...pointerDown(f),clientX,clientY});
+ const end={pointerId:1,clientX:1270-image.width/2,clientY:710-image.height/2};
+ f.events.get('pointermove')({...end,buttons:1});f.nativeEnds();f.events.get('pointerup')({...end,buttons:0});f.run();
+ assert.equal(f.saved.get('harness-pet-corner-v1'),'bottom-right');
+ const final=f.image.getBoundingClientRect();assert.ok(Math.abs(final.right-1268)<.01);assert.ok(Math.abs(final.bottom-708)<.01);
+ assert.ok(parseFloat(f.context.document.getElementById('root').style['--harness-pet-lane'])>0);
+});
+test('Re-grabbing during a press rebound uses stable artwork bounds for the next corner drop',()=>{
+ const f=fixture({corner:'free'});f.run();const stable=f.image.getBoundingClientRect();
+ f.animate(.88);const clientX=stable.left+stable.width/2,clientY=stable.top+stable.height/2;
+ f.events.get('pointerdown')({...pointerDown(f),clientX,clientY});
+ const end={pointerId:1,clientX:clientX+12-stable.left,clientY:clientY+12-stable.top};
+ f.events.get('pointermove')({...end,buttons:1});f.nativeEnds();f.events.get('pointerup')({...end,buttons:0});f.run();
+ assert.equal(f.saved.get('harness-pet-corner-v1'),'top-left');
+ f.animate(1);const final=f.image.getBoundingClientRect();assert.ok(Math.abs(final.left-12)<.01);assert.ok(Math.abs(final.top-12)<.01);
+});
 test('A missed pointerup resumes layout on a released pointermove and releases a moved preset',()=>{
  const f=fixture();f.run();f.events.get('pointerdown')(pointerDown(f));
- f.events.get('pointermove')({pointerId:1,buttons:1,clientX:1170,clientY:620});
- f.events.get('pointermove')({pointerId:1,buttons:0,clientX:1170,clientY:620});
+ f.events.get('pointermove')({pointerId:1,buttons:1,clientX:1000,clientY:620});
+ f.events.get('pointermove')({pointerId:1,buttons:0,clientX:1000,clientY:620});
  f.panel.open=true;f.refresh();assert.equal(f.widget.getAttribute('data-harness-occluded'),'true');assert.equal(f.saved.get('harness-pet-corner-v1'),'free');
 });
 test('Only the initiating primary pointer can commit or cancel a pet gesture',()=>{
@@ -77,7 +96,7 @@ test('Only the initiating primary pointer can commit or cancel a pet gesture',()
   f.events.get('pointerdown')({...pointerDown(f),pointerId:2,isPrimary:false,clientX:500});
   f.events.get(event)({pointerId:2,buttons:0,clientX:500,clientY:300});
   assert.equal(f.saved.get('harness-pet-corner-v1'),'bottom-right');
-  f.events.get('pointermove')({pointerId:1,buttons:1,clientX:1170,clientY:620});f.events.get('pointerup')({pointerId:1,buttons:0,clientX:1170,clientY:620});f.run();
+  f.events.get('pointermove')({pointerId:1,buttons:1,clientX:1000,clientY:620});f.events.get('pointerup')({pointerId:1,buttons:0,clientX:1000,clientY:620});f.run();
   assert.equal(f.saved.get('harness-pet-corner-v1'),'free');
  }
 });

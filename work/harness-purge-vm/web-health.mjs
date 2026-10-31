@@ -174,9 +174,13 @@ export function planPetDock(corner,width,height,artWidth,artHeight) {
 export function dragPetCorner(start,end,width,height) {
  if(!start||![start.x,start.y,start.width,start.height,start.pointerX,start.pointerY,end?.clientX,end?.clientY,width,height].every(Number.isFinite)||end.clientX===0&&end.clientY===0)return null;
  const dx=end.clientX-start.pointerX,dy=end.clientY-start.pointerY;
- // Original endDrag owns the 3px drag threshold, edge zones, flip and persistence.
- // Manual movement releases our explicit preset rather than adding another snapper.
- return dx*dx+dy*dy<9?null:'free';
+ if(dx*dx+dy*dy<9)return null;
+ // Commit one dock choice after the native gesture ends. Free placement avoids
+ // inputs and the footer, so it cannot retain a drop at a viewport corner.
+ const x=start.x+dx,y=start.y+dy,near=32;
+ const horizontal=x<=near?'left':x+start.width>=width-near?'right':null;
+ const vertical=y<=near?'top':y+start.height>=height-near?'bottom':null;
+ return horizontal&&vertical?vertical+'-'+horizontal:'free';
 }
 
 export function installPluginPetPanel(onAction) {
@@ -253,6 +257,16 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   }
   if(surface.getAttribute('data-harness-occluded')!==String(hidden))surface.setAttribute('data-harness-occluded',String(hidden));
  };
+ const measure=(widget,img)=>{
+   const paint=img.getBoundingClientRect(),box=widget.getBoundingClientRect(),art=getComputedStyle(img),css=getComputedStyle(widget);
+   const width=parseFloat(art.width),height=parseFloat(art.height),rootWidth=parseFloat(css.width),rootHeight=parseFloat(css.height);
+   if([width,height,rootWidth,rootHeight].every(n=>Number.isFinite(n)&&n>0)&&art.display!=='none'){
+    const originX=Number.isFinite(parseFloat(widget.style.left))?parseFloat(widget.style.left):box.left,originY=Number.isFinite(parseFloat(widget.style.top))?parseFloat(widget.style.top):box.top;
+    const flipped=widget.classList?.contains('dshwv-left')??false,x=originX+(flipped?0:rootWidth-width),y=originY+rootHeight-height;
+    return{x,y,left:x,top:y,right:x+width,bottom:y+height,width,height,originX,originY,rootWidth,flipped};
+   }
+   return{x:paint.x,y:paint.y,left:paint.left,top:paint.top,right:paint.right,bottom:paint.bottom,width:paint.width,height:paint.height,originX:box.left,originY:box.top,rootWidth:box.width,flipped:false};
+  };
  const update=()=>{
   pending=false;
   addDockMenu();
@@ -264,17 +278,8 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   // The original plugin can end a gesture itself (lost mouse-up, long press,
   // menu interaction). Its class is authoritative; never leave our guard stuck.
   if(dragging){if(widget.classList?.contains('dshwv-dragging'))return;dragging=false;dragMoved=false;dragStart=null}
-  const measure=()=>{
-   const paint=img.getBoundingClientRect(),box=widget.getBoundingClientRect(),art=getComputedStyle(img),css=getComputedStyle(widget);
-   const width=parseFloat(art.width),height=parseFloat(art.height),rootWidth=parseFloat(css.width),rootHeight=parseFloat(css.height);
-   if([width,height,rootWidth,rootHeight].every(n=>Number.isFinite(n)&&n>0)&&art.display!=='none'){
-    const originX=Number.isFinite(parseFloat(widget.style.left))?parseFloat(widget.style.left):box.left,originY=Number.isFinite(parseFloat(widget.style.top))?parseFloat(widget.style.top):box.top;
-    const flipped=widget.classList?.contains('dshwv-left')??false,x=originX+(flipped?0:rootWidth-width),y=originY+rootHeight-height;
-    return{x,y,left:x,top:y,right:x+width,bottom:y+height,width,height,originX,originY,rootWidth,flipped};
-   }
-   return{x:paint.x,y:paint.y,left:paint.left,top:paint.top,right:paint.right,bottom:paint.bottom,width:paint.width,height:paint.height,originX:box.left,originY:box.top,rootWidth:box.width,flipped:false};
-  };
-  let geometry=measure(),dock=planDock?.(corner,innerWidth,innerHeight,geometry.width,geometry.height);
+
+  let geometry=measure(widget,img),dock=planDock?.(corner,innerWidth,innerHeight,geometry.width,geometry.height);
   if(planDock){
    for(const node of [root,document.getElementById('harness-vm-identity')].filter(Boolean)){
     setProperty(node,'--harness-pet-lane',(dock?.lane??0)+'px');setProperty(node,'--harness-pet-left-lane',(dock?.leftLane??0)+'px');
@@ -283,7 +288,7 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
    const limit=dock?dock.rootLimit+'px':'';
    if(widget.style.maxWidth!==limit)widget.style.maxWidth=limit;
    if(widget.style.maxHeight!==limit)widget.style.maxHeight=limit;
-   geometry=measure();dock=planDock(corner,innerWidth,innerHeight,geometry.width,geometry.height);
+   geometry=measure(widget,img);dock=planDock(corner,innerWidth,innerHeight,geometry.width,geometry.height);
    widget.setAttribute('data-harness-corner',dock?corner:'free');
    for(const menu of document.querySelectorAll('.dshwv-menu'))for(const row of menu.querySelectorAll('.harness-pet-dock')){
     const label=row.querySelector('span');const text='位置：'+({'top-left':'左上','top-right':'右上','bottom-left':'左下','bottom-right':'右下',free:'自由'}[corner])+(storageAvailable?'':'（仅本页）');if(label&&label.textContent!==text)label.textContent=text;
@@ -314,7 +319,7 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
   }
   // Bubble geometry is independent: opening a balance bubble must not move the
   // pet or silently hide the result. Prefer a gap, then use the native overlay.
-  const anchor=measure();
+  const anchor=measure(widget,img);
   for(const popup of widget.querySelectorAll('.dshwv-pop.dshwv-pop-open')){
    setHidden(popup,false);
    const css=getComputedStyle(popup),r=popup.getBoundingClientRect(),width=parseFloat(css.width)||r.width,height=parseFloat(css.height)||r.height;
@@ -342,12 +347,19 @@ export function installFloatingLayout(choose,planDock,dragCorner,mountPetPanel) 
  const nativeDragging=()=>document.querySelector('.dshwv-root')?.classList?.contains('dshwv-dragging')===true;
  const finishDrag=(event,commit)=>{
   if(!ownsPointer(event))return;
-  if(commit&&dragMoved&&dragStart.nativeAccepted&&dragCorner&&Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&(event.clientX!==0||event.clientY!==0))changeCorner('free');
+  if(commit&&dragMoved&&dragStart.nativeAccepted&&dragCorner){
+   const next=dragCorner(dragStart,event,innerWidth,innerHeight);
+   // A gesture may travel and return to its start: still release its preset,
+   // while cancelled or missing-coordinate events never submit a position.
+   if(next)changeCorner(next);
+   else if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&(event.clientX!==0||event.clientY!==0))changeCorner('free');
+  }
   dragStart=null;dragging=false;dragMoved=false;schedule();
  };
  document.addEventListener('pointerdown',event=>{
   if(dragging||event.isPrimary===false||event.button!==undefined&&event.button!==0||!event.target.closest?.('.dshwv-img'))return;
-  const r=document.querySelector('.dshwv-img')?.getBoundingClientRect();
+  const widget=document.querySelector('.dshwv-root'),img=widget?.querySelector('.dshwv-img');
+  const r=img?measure(widget,img):null;
   if(r){
    dragging=true;dragMoved=false;dragStart={x:r.x,y:r.y,width:r.width,height:r.height,pointerX:event.clientX,pointerY:event.clientY,pointerId:event.pointerId,nativeAccepted:false};
    schedule();
