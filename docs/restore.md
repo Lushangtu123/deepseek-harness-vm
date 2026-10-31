@@ -1,3 +1,13 @@
+<!-- security-reload:start -->
+# 当前恢复点：ready-security-reload-20261030
+
+当前127项程序，新点`ready-security-reload-20261030`。独立磁盘副本实际启动后2614项选定稳定摘要与127项程序匹配，原盘换回运行、临时副本清理；旧12点保留，共13点，5个宿主辅助工具覆盖匹配。部署前备份为VM的`/home/purge/downloads/security-reload-ssh-20261030`与宿主原安装根的`setup/before-reload-ssh-20261030`。
+
+本地196项Python（23文件，其中控制器155项/19文件）、443项插件Node、124项入口Node、客户端重建一致性及7项部署故障控制通过，定向复测不累加。真实浏览器在后台成功后收到损坏回执，完整重载与关闭重开仍保留原请求，明确重试未产生重复事件；原VM冷启动后稳定入口读取及恢复徽标通过。SSH真实受控异常和独立菜单采样通过，但旧断连未复现，根因仍未确定。
+
+真实项目459项受跟踪文件、HEAD与6张审计表不变，95条全待验证；无新模型调用或扫描，无运行中审计任务或扫描容器。宿主权限、VM网络/共享及另外3台停止VM不变。整机恢复会回退点后数据；Git不含磁盘和密钥，不能仅靠clone恢复整机。[结构化验收](security-reload-verification.json) · [操作、存储与采样限制](reload-recovery-ssh.md)。以下为历史分阶段记录。
+<!-- security-reload:end -->
+
 <!-- security-pagination:start -->
 # 当前恢复点：ready-security-pagination-20261030
 

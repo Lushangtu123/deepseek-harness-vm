@@ -28,8 +28,15 @@ test('Evidence cache is bounded, explicit recheck bypasses it and stale DB is a 
 test('Future and contradictory database metadata remain unconfirmed',async()=>{
  for(const metadata of [{Version:2,UpdatedAt:'2030-01-01T00:00:00Z',NextUpdate:'2030-01-02T00:00:00Z'},{Version:2,UpdatedAt:'2026-10-29T19:00:00Z',NextUpdate:'2026-10-28T19:00:00Z'}]){const f=await fixture();try{f.manifest.database.metadata=metadata;f.save();fs.writeFileSync(path.join(f.root,'cache/db/metadata.json'),JSON.stringify(metadata));assert.equal(f.inspector.read().trivy.ready,false)}finally{f.close()}}
 });
-test('Database changes invalidate cached evidence and unsafe image references cannot become arguments',async()=>{
- const f=await fixture();try{f.inspector.read();fs.writeFileSync(path.join(f.root,'cache/db/trivy.db'),Buffer.alloc(4096,7));assert.equal(f.inspector.read().trivy.ready,false);f.manifest.tools[0].imageRef='--privileged';f.save();assert.ok(Object.values(f.inspector.read()).every(row=>!row.ready))}finally{f.close()}
+test('Database metadata changes invalidate cached evidence and unsafe image references cannot become arguments',async()=>{
+ const f=await fixture();try{
+  f.inspector.read();const file=path.join(f.root,'cache/db/trivy.db'),before=fs.statSync(file);fs.writeFileSync(file,Buffer.alloc(4096,7));
+  // Linux can assign identical timestamps to rapid same-size writes. This case
+  // checks metadata invalidation, so make that condition explicit without sleeps.
+  fs.utimesSync(file,before.atime,new Date(before.mtimeMs+1000));assert.notEqual(fs.statSync(file).mtimeMs,before.mtimeMs);
+  const changed=f.inspector.read();assert.equal(changed.trivy.cached,false);assert.equal(changed.trivy.ready,false);
+  f.manifest.tools[0].imageRef='--privileged';f.save();assert.ok(Object.values(f.inspector.read()).every(row=>!row.ready))
+ }finally{f.close()}
 });
 test('The standalone preflight refuses to inspect the Mac host as a dedicated VM',async()=>{
  if(process.platform==='linux'&&os.homedir()==='/home/purge')return;

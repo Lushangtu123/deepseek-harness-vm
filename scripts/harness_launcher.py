@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """One interactive entry for the existing dedicated Harness VM controller."""
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 
@@ -17,6 +18,7 @@ Harness 启动与管理
   7  恢复当前已验收版本（需先关闭虚拟机）
   8  修复合并版 pnpm 配置（仅已有构建配置，需 VM 运行）
   9  漏洞库检查、更新与中断恢复（需 VM 运行）
+  10  关联采样最近 SSH 故障（不重试原命令）
   0  退出
 """
 
@@ -105,6 +107,14 @@ def execute(choice):
   if input('输入“'+word+'”继续，其他输入取消：').strip()!=word:
    print('已取消。');return
  manager=load_manager()
+ if choice=='10':
+  sample=getattr(manager,'correlate_ssh_failure',None)
+  if not callable(sample):raise LauncherNotice('当前控制器尚不支持 SSH 关联采样。')
+  print('读取最近故障参考号并单独采样；不启动 VM，不重试原命令，也不改变 SSH 策略。')
+  value=sample()
+  if not isinstance(value,dict) or not isinstance(value.get('reference'),str) or value.get('probeState') not in {'read','unavailable','not-running'} or type(value.get('recorded')) is not bool or value.get('exactConnectionIdentified') is not False:raise LauncherNotice('关联采样结果未确认。')
+  print(json.dumps(value,ensure_ascii=False));print('时间窗口内的记录不等于定位到原连接；未读取到日志不代表没有故障。')
+  return
  if choice=='8':
   repair=getattr(manager,'repair_profile',None)
   if not callable(repair):raise LauncherNotice('当前控制器尚不支持此维护操作。')
@@ -144,8 +154,8 @@ def main():
   try:choice=input('请选择 [1]：').strip() or '1'
   except (EOFError,KeyboardInterrupt):print('\n已退出。');return result
   if choice=='0':return result
-  if choice not in {'1','2','3','4','5','6','7','8','9'}:
-   print('请输入 0 至 9。');continue
+  if choice not in {'1','2','3','4','5','6','7','8','9','10'}:
+   print('请输入 0 至 10。');continue
   try:execute(choice);result=0
   except EOFError:print('\n已取消。');return result
   except KeyboardInterrupt:print('\n操作已中断，请核对状态；不会自动重试。');return 130

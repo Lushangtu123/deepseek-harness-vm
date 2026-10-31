@@ -2,10 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createSecurityTab} from '../package/lib/redteam/personal-security-client.mjs'
 const flush=()=>new Promise(setImmediate);
-function host(api){
+const memoryStorage=()=>{const values=new Map();return{get length(){return values.size},key:index=>[...values.keys()][index]??null,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)}};
+function host(api,{storage=memoryStorage()}={}){
  let cells=[],index=0,pending=[],dirty=false,tree,props={engagement:'a',refreshKey:0},unmounted=false,late=0;
  const React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(v=>v!==false&&v!==null&&v!==undefined)}),useState(initial){const at=index++;if(!cells[at])cells[at]={value:typeof initial==='function'?initial():initial};return[cells[at].value,value=>{if(unmounted){late++;return}cells[at].value=typeof value==='function'?value(cells[at].value):value;dirty=true}]},useRef(initial){const at=index++;return cells[at]||(cells[at]={current:initial})},useEffect(effect,deps){const at=index++,previous=cells[at];if(!previous||deps.some((value,i)=>value!==previous.deps[i]))pending.push(()=>{previous?.cleanup?.();cells[at]={deps,cleanup:effect()}})}};
- const Component=createSecurityTab(React,api);
+ const Component=createSecurityTab(React,api,{storage});
  const render=(next=props)=>{props=next;for(let n=0;n<10;n++){dirty=false;index=0;tree=Component(props);const effects=pending;pending=[];effects.forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled hooks')};
  return{render,unmount(){unmounted=true;cells.forEach(row=>row.cleanup?.())},get late(){return late}};
 }
@@ -13,6 +14,83 @@ const text=n=>typeof n==='string'||typeof n==='number'?String(n):(n?.children||[
 const nodes=n=>n&&typeof n==='object'?[n,...(n.children||[]).flatMap(nodes)]:[];
 const btn=(tree,label)=>{const result=nodes(tree).find(n=>n.type==='button'&&text(n)===label);assert.ok(result,'Missing '+label);return result};
 const state=(engagement='a')=>({ok:true,engagement,profile:{revision:1,repoRoot:'/home/purge/workspace/test',url:null,expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy']},tools:{semgrep:{ready:true,version:'test'},trivy:{ready:true,version:'test'},zap:{ready:false}},runs:[],findings:[],observedAt:new Date().toISOString()});
+test('A full remount restores an uncertain request without replay and explicitly retries identical content',async()=>{
+ const storage=memoryStorage(),starts=[];let uncertain=true;
+ const api=async request=>{if(request.op==='securityStart'){starts.push(structuredClone(request));if(uncertain)throw Error('reply lost');return{ok:true,run:{id:'saved-run',state:'running'}}}return state(request.engagement)};
+ let h=host(api,{storage});try{
+  h.render();await flush();await btn(h.render(),'开始检查').props.onClick();assert.equal(starts.length,1);assert.equal(storage.length,1,'Persist before sending and keep an uncertain request');h.unmount();
+  h=host(api,{storage});h.render();await flush();let tree=h.render();assert.equal(starts.length,1,'Mount must never replay a write');assert.equal(btn(tree,'开始检查').props.disabled,true);assert.match(text(tree),new RegExp(starts[0].requestId));assert.ok(btn(tree,'重试同一请求'));uncertain=false;
+  await btn(tree,'重试同一请求').props.onClick();assert.deepEqual(starts,[starts[0],starts[0]]);assert.equal(storage.length,0,'Confirmed result removes only its receipt');
+ }finally{h.unmount()}
+});
+test('Unavailable persistence fails closed before any mutation and does not pretend reload protection',async()=>{
+ const writes=[],storage={getItem:()=>null,setItem:()=>{throw Error('quota PRIVATE')},removeItem:()=>{}};
+ const h=host(async request=>{if(request.op==='securityStart')writes.push(request);return state(request.engagement)},{storage});try{
+  h.render();await flush();await btn(h.render(),'开始检查').props.onClick();const tree=h.render();assert.equal(writes.length,0);assert.match(text(tree),/恢复记录.*保存|保存.*恢复记录/);assert.doesNotMatch(text(tree),/PRIVATE/);assert.equal(btn(tree,'开始检查').props.disabled,true);
+ }finally{h.unmount()}
+});
+test('Project changes and remounts do not expose another project pending request',async()=>{
+ const storage=memoryStorage(),writes=[];const api=async request=>{if(request.op==='securityStart'){writes.push(request);throw Error('reply lost')}return state(request.engagement)};
+ const h=host(api,{storage});try{
+  h.render();await flush();await btn(h.render(),'开始检查').props.onClick();const pending=writes[0];h.render({engagement:'b',refreshKey:0});await flush();let tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,false);assert.doesNotMatch(text(tree),new RegExp(pending.requestId));
+  h.render({engagement:'a',refreshKey:0});await flush();tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,true);assert.match(text(tree),new RegExp(pending.requestId));assert.equal(writes.length,1);
+ }finally{h.unmount()}
+});
+test('Retained start and retry handlers cannot send work after their project changes',async()=>{
+ const storage=memoryStorage(),writes=[];const api=async request=>{if(request.op==='securityStart'){writes.push(request);throw Error('lost reply')}return state(request.engagement)};
+ const h=host(api,{storage});try{
+  h.render();await flush();const oldStart=btn(h.render(),'开始检查').props.onClick;h.render({engagement:'b',refreshKey:0});await flush();await oldStart();assert.equal(writes.length,0,'Old A start must not act while B is selected');
+  h.render({engagement:'a',refreshKey:0});await flush();await btn(h.render(),'开始检查').props.onClick();const oldRetry=btn(h.render(),'重试同一请求').props.onClick;
+  h.render({engagement:'b',refreshKey:0});await flush();await btn(h.render(),'开始检查').props.onClick();const count=writes.length;await oldRetry();assert.equal(writes.length,count,'Old A retry must not read B pending request');
+ }finally{h.unmount()}
+});
+test('A retained refresh cannot restore a previous project receipt into the current project',async()=>{
+ const storage=memoryStorage(),calls=[],h=host(async request=>{calls.push(request);if(request.op==='securityStart')throw Error('lost reply');return state(request.engagement)},{storage});try{
+  h.render();await flush();await btn(h.render(),'开始检查').props.onClick();const oldRefresh=btn(h.render(),'刷新').props.onClick;h.render({engagement:'b',refreshKey:0});await flush();const count=calls.length;await oldRefresh();const tree=h.render();assert.equal(calls.length,count);assert.equal(btn(tree,'开始检查').props.disabled,false);assert.doesNotMatch(text(tree),/"engagement": "a"/);
+ }finally{h.unmount()}
+});
+test('Malformed successful launch responses retain the durable request through remount',async()=>{
+ for(const reply of [{ok:true},{ok:true,run:{id:'',state:'running'}},{ok:true,run:{id:'saved-run',state:'unrecognized'}}]){
+  const storage=memoryStorage(),api=async request=>request.op==='securityStart'?reply:state(request.engagement);let h=host(api,{storage});try{
+   h.render();await flush();await btn(h.render(),'开始检查').props.onClick();assert.equal(storage.length,1);h.unmount();h=host(api,{storage});h.render();await flush();assert.ok(btn(h.render(),'重试同一请求'));assert.equal(btn(h.render(),'开始检查').props.disabled,true);
+  }finally{h.unmount()}
+ }
+});
+test('Scope and review requests preserve complete original content across remount',async()=>{
+ const finding={id:7,revision:2,tool:'semgrep',title:'Synthetic',rule:'fixture',location:'app.js:1',evidence:'synthetic',note:'',severity:'high',status:'unverified'};
+ for(const op of ['securityScopeSave','securityReview']){
+  const storage=memoryStorage(),writes=[];let uncertain=true;const api=async request=>{if(request.op===op){writes.push(structuredClone(request));if(uncertain)throw Error('reply lost');return op==='securityScopeSave'?{ok:true,profile:{...state().profile,revision:request.revision+1,repoRoot:'/home/purge/workspace/owned-reload',expiresAt:request.expiresAt}}:{ok:true,finding:{...finding,revision:request.revision+1,status:request.status,note:request.note}}}return{...state(request.engagement),findings:[finding]}};
+  let h=host(api,{storage});try{
+   h.render();await flush();let tree=h.render();if(op==='securityScopeSave'){nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge//workspace/ignored/../owned-reload/.'}});tree=h.render();nodes(nodes(tree).find(n=>n.type==='label'&&text(n).includes('我确认上述目录'))).find(n=>n.type==='input').props.onChange({target:{checked:true}});tree=h.render();await btn(tree,'保存范围').props.onClick()}else{nodes(tree).find(n=>n.type==='textarea').props.onChange({target:{value:'Synthetic review note preserving Unicode 中文'}});tree=h.render();await btn(tree,'确认发现').props.onClick()}
+   assert.equal(writes.length,1);assert.equal(storage.length,1);h.unmount();h=host(api,{storage});h.render();await flush();tree=h.render();assert.match(text(tree),new RegExp(op));assert.equal(writes.length,1);uncertain=false;await btn(tree,'重试同一请求').props.onClick();assert.deepEqual(writes,[writes[0],writes[0]]);assert.equal(storage.length,0);
+  }finally{h.unmount()}
+ }
+});
+test('Corrupt, foreign, unsupported and oversized stored requests block fresh work and require explicit discard',async()=>{
+ for(const raw of ['{',JSON.stringify({version:2,createdAt:Date.now(),request:{}}),JSON.stringify({version:1,createdAt:Date.now(),request:{op:['securityReview'],engagement:'a',requestId:'array-operation-1',id:7,revision:2,status:'confirmed',note:'Synthetic malformed operation'}}),JSON.stringify({version:1,createdAt:Date.now(),request:{op:'securityStart',engagement:'b',requestId:'foreign-request-1',profileRevision:1,tool:'semgrep'}}),'x'.repeat(16385)]){
+  const storage=memoryStorage();storage.setItem('dsh-security-request-v1:a',raw);const writes=[],h=host(async request=>{if(request.op!=='securityStatus')writes.push(request);return state(request.engagement)},{storage});try{
+   h.render();await flush();let tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,true);assert.match(text(tree),/恢复记录.*无效/);assert.equal(writes.length,0);assert.equal(btn(tree,'仅清除恢复提示').props.disabled,true);await btn(tree,'仅清除恢复提示').props.onClick();assert.equal(storage.length,1);
+   nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.onChange({target:{checked:true}});tree=h.render();await btn(tree,'仅清除恢复提示').props.onClick();assert.equal(storage.length,0);assert.equal(writes.length,0);assert.equal(btn(h.render(),'开始检查').props.disabled,false);
+  }finally{h.unmount()}
+ }
+});
+test('Storage read failures never become an empty pending queue and a failed status read prevents discard',async()=>{
+ const writes=[],bad={getItem:()=>{throw Error('PRIVATE')},setItem:()=>{},removeItem:()=>{throw Error('must not clear')}};
+ const h=host(async request=>{if(request.op!=='securityStatus')writes.push(request);return state(request.engagement)},{storage:bad});try{h.render();await flush();const tree=h.render();assert.match(text(tree),/恢复记录无法读取/);assert.doesNotMatch(text(tree),/PRIVATE/);assert.equal(btn(tree,'开始检查').props.disabled,true);assert.equal(writes.length,0)}finally{h.unmount()}
+ const storage=memoryStorage();storage.setItem('dsh-security-request-v1:a','{');const failed=host(async()=>{throw Error('status unavailable')},{storage});try{failed.render();await flush();const tree=failed.render();assert.equal(btn(tree,'仅清除恢复提示').props.disabled,true);assert.equal(nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.disabled,true);assert.equal(storage.length,1)}finally{failed.unmount()}
+});
+test('Late completion and stale discard preserve a replacement pending request',async()=>{
+ const storage=memoryStorage();let complete;const h=host(async request=>request.op==='securityStart'?new Promise(resolve=>{complete=resolve}):state(request.engagement),{storage});try{
+  h.render();await flush();const old=btn(h.render(),'开始检查').props.onClick();const key=storage.key(0),replacement=JSON.parse(storage.getItem(key));replacement.request.requestId='replacement-request-1';storage.setItem(key,JSON.stringify(replacement));complete({ok:true,run:{id:'original-run',state:'completed'}});await old;let tree=h.render();assert.match(text(tree),/replacement-request-1/);assert.equal(storage.length,1);
+  nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.onChange({target:{checked:true}});tree=h.render();const remove=btn(tree,'仅清除恢复提示').props.onClick;replacement.request.requestId='replacement-request-2';storage.setItem(key,JSON.stringify(replacement));await remove();assert.equal(JSON.parse(storage.getItem(key)).request.requestId,'replacement-request-2');assert.match(text(h.render()),/记录已变化/);
+ }finally{h.unmount()}
+});
+test('An old discard acknowledgment cannot clear a refreshed receipt or run during a later read',async()=>{
+ const storage=memoryStorage();storage.setItem('dsh-security-request-v1:a','{');let finishRead,stall=false;const h=host(async request=>stall?new Promise(resolve=>{finishRead=()=>resolve(state(request.engagement))}):state(request.engagement),{storage});try{
+  h.render();await flush();let tree=h.render();nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.onChange({target:{checked:true}});tree=h.render();const oldClear=btn(tree,'仅清除恢复提示').props.onClick;storage.setItem('dsh-security-request-v1:a','replacement');await btn(tree,'刷新').props.onClick();await oldClear();assert.equal(storage.getItem('dsh-security-request-v1:a'),'replacement');
+  tree=h.render();nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.onChange({target:{checked:true}});tree=h.render();const clearBeforeRead=btn(tree,'仅清除恢复提示').props.onClick;stall=true;const reading=btn(tree,'刷新').props.onClick();await clearBeforeRead();assert.equal(storage.length,1);finishRead();await reading;
+ }finally{h.unmount()}
+});
 const pagedState=request=>{
  const r=request.pages?.runs||{},f=request.pages?.findings||{},filters={tool:f.tool||'',status:f.status||'',severity:f.severity||'',search:f.search||''},filtered=Object.values(filters).some(Boolean),last=!!f.cursor;
  const findings=filtered?[]:(last?[1]:Array.from({length:50},(_,i)=>51-i)).map(id=>({id,revision:1,tool:'semgrep',title:'Finding '+id,rule:'fixture.rule',location:'fixture-'+id+'.js:1',evidence:'synthetic',note:'',severity:'medium',status:'unverified'}));

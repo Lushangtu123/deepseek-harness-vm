@@ -12,6 +12,10 @@ from unittest.mock import Mock,patch
 
 
 class LauncherTests(unittest.TestCase):
+ def test_ssh_correlation_menu_never_starts_switches_or_replays_vm_work(self):
+  manager=self.manager();manager.correlate_ssh_failure=Mock(return_value={'reference':'saved-reference','probeState':'read','recorded':True,'exactConnectionIdentified':False})
+  _,_,opened,output,result=self.run_menu(['10','0'],manager)
+  manager.correlate_ssh_failure.assert_called_once_with();manager.start.assert_not_called();manager.switch.assert_not_called();manager.stop.assert_not_called();opened.assert_not_called();self.assertEqual(result,0);self.assertIn('不重试原命令',output);self.assertIn('saved-reference',output)
  def test_database_menu_is_explicit_and_check_does_not_start_vm(self):
   module=self.load();self.assertTrue(callable(getattr(module,'database_update',None)),'Database maintenance entry is missing')
   with patch.object(module,'database_update',return_value=0) as action,patch.object(module,'load_manager') as load,patch('builtins.input',side_effect=['1']),contextlib.redirect_stdout(io.StringIO()):module.execute('9')

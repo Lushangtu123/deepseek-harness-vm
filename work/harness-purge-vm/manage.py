@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-security-pagination-20261030'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029','ready-recovery-proof-20261029','ready-security-audit-20261029','ready-security-validated-20261029','ready-security-workflow-20261029','ready-security-diagnostics-20261029','ready-security-background-20261029','ready-security-lifecycle-20261030',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-security-reload-20261030'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029','ready-recovery-proof-20261029','ready-security-audit-20261029','ready-security-validated-20261029','ready-security-workflow-20261029','ready-security-diagnostics-20261029','ready-security-background-20261029','ready-security-lifecycle-20261030','ready-security-pagination-20261030',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_TOOL_FILES|={'tools/security-workbench/'+name for name in ['images.json','rules.json','cache/db/metadata.json']}
@@ -94,11 +94,23 @@ def validate():
 def command(argv,**kw):return subprocess.run(argv,check=True,capture_output=True,text=True,timeout=kw.pop('timeout',30),**kw)
 
 SSH_REASONS={'connection-refused':'Connection refused','connection-reset':'Connection reset by peer','connection-closed':'Connection closed','connection-timeout':'Connection timed out','authentication-denied':'Permission denied (publickey)','host-key-mismatch':'Host key verification failed','identity-unavailable':'Dedicated SSH identity unavailable','timeout':'SSH command deadline exceeded','remote-or-unknown-error':'SSH or remote command error; raw command and output omitted'}
-SSH_PHASES={'general','clock-read','clock-set','service-readiness','access-url','guest-shutdown','runtime-status','recovery-proof','program-update','native-check'}
+SSH_PHASES={'general','clock-read','clock-set','service-readiness','access-url','guest-shutdown','runtime-status','recovery-proof','program-update','native-check','diagnostic-sample'}
+SSH_TRANSPORT_STAGES={'connect','identification','authentication','host-key','remote','unknown'}
 REMOTE_EXCEPTIONS={'AssertionError','ValueError','TypeError','KeyError','IndexError','AttributeError','CalledProcessError','TimeoutExpired','OSError','PermissionError','FileNotFoundError','ModuleNotFoundError','ImportError','RuntimeError','SyntaxError'}
 
 def valid_ssh_trace(value):
- return isinstance(value,dict) and set(value)=={'id','phase','remoteException','remoteLine'} and isinstance(value['id'],str) and re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',value['id']) is not None and isinstance(value['phase'],str) and value['phase'] in SSH_PHASES and (value['remoteException'] is None or isinstance(value['remoteException'],str) and value['remoteException'] in REMOTE_EXCEPTIONS) and (value['remoteLine'] is None or type(value['remoteLine']) is int and 1<=value['remoteLine']<=999999)
+ return isinstance(value,dict) and set(value) in ({'id','phase','remoteException','remoteLine'},{'id','phase','remoteException','remoteLine','transportStage'}) and ('transportStage' not in value or isinstance(value['transportStage'],str) and value['transportStage'] in SSH_TRANSPORT_STAGES) and isinstance(value['id'],str) and re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',value['id']) is not None and isinstance(value['phase'],str) and value['phase'] in SSH_PHASES and (value['remoteException'] is None or isinstance(value['remoteException'],str) and value['remoteException'] in REMOTE_EXCEPTIONS) and (value['remoteLine'] is None or type(value['remoteLine']) is int and 1<=value['remoteLine']<=999999)
+
+def reported_transport_stage(raw,code):
+ if code!=255:return 'remote'
+ if isinstance(raw,bytes):raw=raw.decode('utf-8','replace')
+ if not isinstance(raw,str):return 'unknown'
+ raw=raw[:8192].lower()
+ if any(marker in raw for marker in ['kex_exchange_identification','ssh_exchange_identification','banner exchange']):return 'identification'
+ if 'permission denied (publickey' in raw:return 'authentication'
+ if 'host key verification failed' in raw:return 'host-key'
+ if 'ssh: connect to host ' in raw:return 'connect'
+ return 'unknown'
 
 def reported_remote_failure(raw):
  # Keep only allowlisted Python exception names and a numeric stdin frame.
@@ -115,7 +127,7 @@ def reported_remote_failure(raw):
 def ssh_trace_text(error):
  trace=getattr(error,'trace',None)
  if not valid_ssh_trace(trace):return ''
- return '; ref='+trace['id']+' phase='+trace['phase']+((' reported='+trace['remoteException']) if trace['remoteException'] else '')+((' stdinLine='+str(trace['remoteLine'])) if trace['remoteLine'] else '')+' diagnosticSaved='+str(getattr(error,'diagnosticRecorded',False)).lower()
+ return '; ref='+trace['id']+' phase='+trace['phase']+' transport='+trace.get('transportStage','unknown')+((' reported='+trace['remoteException']) if trace['remoteException'] else '')+((' stdinLine='+str(trace['remoteLine'])) if trace['remoteLine'] else '')+' diagnosticSaved='+str(getattr(error,'diagnosticRecorded',False)).lower()
 
 def ssh_diagnostics():
  try:fd=os.open(ROOT/'ssh-diagnostics.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
@@ -164,7 +176,7 @@ class SSHDeadline(subprocess.TimeoutExpired):
 
 def ssh(script,timeout=15,*,input=None,phase='general'):
  if not isinstance(phase,str) or phase not in SSH_PHASES:raise ValueError('Unknown SSH diagnostic phase')
- trace={'id':str(uuid.uuid4()),'phase':phase,'remoteException':None,'remoteLine':None}
+ trace={'id':str(uuid.uuid4()),'phase':phase,'remoteException':None,'remoteLine':None,'transportStage':'unknown'}
  argv=['/usr/bin/ssh','-F','/dev/null','-p','49223','-i',str(SETUP/'guest-ed25519'),'-o','IdentityAgent=none','-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','ConnectTimeout=3','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile="'+str(SETUP/'known_hosts')+'"','-o','GlobalKnownHostsFile=/dev/null','purge@127.0.0.1',script]
  started=time.monotonic()
  try:return command(argv,timeout=timeout,**({'input':input} if input is not None else {}))
@@ -175,12 +187,121 @@ def ssh(script,timeout=15,*,input=None,phase='general'):
    for key,needle in [('connection-refused','connection refused'),('connection-reset','connection reset by peer'),('connection-closed','connection closed'),('connection-timeout','connection timed out'),('authentication-denied','permission denied (publickey'),('host-key-mismatch','host key verification failed'),('identity-unavailable','no such identity')]:
     if needle in raw[:8192].lower():reason=key;break
   failure=SSHFailure(error.returncode,error.cmd,output=error.output,stderr=error.stderr);failure.reason=reason
+  trace['transportStage']=reported_transport_stage(error.stderr,error.returncode)
   if error.returncode!=255:trace['remoteException'],trace['remoteLine']=reported_remote_failure(error.stderr)
   failure.trace=trace;failure.diagnosticRecorded=record_ssh_failure(reason,error.returncode,time.monotonic()-started,trace)
   raise failure from None
  except subprocess.TimeoutExpired as error:
   failure=SSHDeadline(error.cmd,error.timeout,output=error.output,stderr=error.stderr);failure.trace=trace;failure.diagnosticRecorded=record_ssh_failure('timeout',None,time.monotonic()-started,trace)
   raise failure from None
+
+SSH_JOURNAL_MARKERS={'maxStartups':'maxstartups','drop':'drop connection','penalty':'penalty','forkFailure':'fork:','outOfMemory':'cannot allocate memory','acceptedKey':'accepted publickey','preAuthClosed':'[preauth]'}
+
+def summarize_ssh_journal(raw):
+ unavailable={'state':'unavailable','rows':None,'truncated':False,'markers':None}
+ try:
+  if not isinstance(raw,str) or len(raw.encode('utf-8'))>262144:return unavailable
+  lines=raw.splitlines()
+  if len(lines)>201:return unavailable
+  messages=[]
+  for line in lines:
+   row=json.loads(line)
+   if not isinstance(row,dict) or not isinstance(row.get('MESSAGE'),str):return unavailable
+   messages.append(row['MESSAGE'].lower())
+  return {'state':'read','rows':min(200,len(messages)),'truncated':len(messages)>200,'markers':{key:sum(marker in message for message in messages[:200]) for key,marker in SSH_JOURNAL_MARKERS.items()}}
+ except (ValueError,UnicodeError):return unavailable
+
+def capture_ssh_journal(start,end):
+ """Bound stdout and kill the fixed command's process group, including pipe holders."""
+ import os,signal,subprocess,threading
+ journal={'state':'unavailable','rows':None,'truncated':False,'markers':None}
+ process=None;timer=None
+ def stop():
+  if process is not None:
+   try:os.killpg(process.pid,signal.SIGKILL)
+   except ProcessLookupError:pass
+ try:
+  process=subprocess.Popen(['/usr/bin/journalctl','--boot=0','-u','ssh.service','--since','@'+str(start),'--until','@'+str(end),'-n','201','--output=json','--output-fields=MESSAGE','--no-pager'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
+  timer=threading.Timer(3,stop);timer.start();raw=process.stdout.read(262145)
+  if len(raw)>262144:stop()
+  code=process.wait(timeout=1)
+  if code==0 and len(raw)<=262144:journal=summarize_ssh_journal(raw.decode('utf-8'))
+ except (OSError,ValueError,subprocess.SubprocessError):pass
+ finally:
+  if timer is not None:timer.cancel()
+  if process is not None:
+   stop();process.wait(timeout=1)
+   process.stdout.close()
+ return journal
+
+def guest_ssh_correlation(start,end):
+ """Fixed read-only VM observer runs as the existing VM admin, never on the host."""
+ from pathlib import Path
+ import os,subprocess,time
+ if os.geteuid()!=0:raise PermissionError('VM observer identity unavailable')
+ now=time.time();boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip();boot_started=now-float(Path('/proc/uptime').read_text().split()[0])
+ state=subprocess.run(['/usr/bin/systemctl','is-active','ssh.service'],capture_output=True,text=True,timeout=2).stdout.strip()
+ if state not in {'active','inactive','failed','activating','deactivating'}:state='unknown'
+ journal=capture_ssh_journal(start,end)
+ return {'serviceState':state,'bootId':boot,'guestObservedAtUnix':now,'guestBootStartedAtUnix':boot_started,'journal':journal}
+
+def valid_ssh_server_sample(value):
+ if not isinstance(value,dict) or set(value)!={'serviceState','bootId','guestObservedAtUnix','guestBootStartedAtUnix','journal'} or value['serviceState'] not in {'active','inactive','failed','activating','deactivating','unknown'} or not isinstance(value['bootId'],str) or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',value['bootId']):return False
+ if any(type(value[key]) not in (int,float) or not math.isfinite(value[key]) or value[key]<=0 for key in ['guestObservedAtUnix','guestBootStartedAtUnix']):return False
+ journal=value['journal']
+ if not isinstance(journal,dict) or set(journal)!={'state','rows','truncated','markers'} or type(journal['truncated']) is not bool:return False
+ if journal['state']=='unavailable':return journal['rows'] is None and journal['markers'] is None and not journal['truncated']
+ return journal['state']=='read' and type(journal['rows']) is int and 0<=journal['rows']<=200 and isinstance(journal['markers'],dict) and set(journal['markers'])==set(SSH_JOURNAL_MARKERS) and all(type(count) is int and 0<=count<=journal['rows'] for count in journal['markers'].values())
+
+def store_ssh_correlation(value):
+ temporary=None
+ try:
+  info=ROOT.stat()
+  if ROOT.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077:return False
+  path=ROOT/'ssh-correlation.json'
+  try:
+   previous=path.lstat()
+   if not stat.S_ISREG(previous.st_mode) or previous.st_uid!=os.getuid() or previous.st_mode&0o077 or previous.st_nlink!=1:return False
+  except FileNotFoundError:pass
+  raw=json.dumps(value).encode()
+  if len(raw)>8192:return False
+  fd,temporary=tempfile.mkstemp(prefix='.ssh-correlation-',dir=ROOT)
+  with os.fdopen(fd,'wb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+  os.replace(temporary,path);temporary=None;return True
+ except (OSError,ValueError,TypeError):return False
+ finally:
+  if temporary is not None:
+   try:os.unlink(temporary)
+   except OSError:pass
+
+def correlate_ssh_failure(reference=None):
+ """Observe a saved failure through a new read-only connection; never replay it."""
+ rows=ssh_diagnostics();available=[row for row in rows if valid_ssh_trace(row.get('trace'))]
+ if reference is None:reference=available[-1]['trace']['id'] if available else None
+ if not isinstance(reference,str) or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',reference):raise ValueError('No saved SSH failure reference')
+ original=next((row for row in available if row['trace']['id']==reference),None)
+ if original is None:raise ValueError('SSH failure reference not found')
+ validate();started=time.time();begin=time.monotonic();duration=min(original['elapsedMs']/1000,120);start=max(0,original['observedAtUnix']-duration-2);end=original['observedAtUnix']+2
+ result={'reference':reference,'failureObservedAtUnix':original['observedAtUnix'],'sampledAtUnix':started,'windowStartUnix':start,'windowEndUnix':end,'attemptWindowClipped':original['elapsedMs']>120000,'vmState':'unknown','probeState':'unavailable','probeFailureReference':None,'server':None,'currentClockOffsetRangeSeconds':None,'failureWindowWithinCurrentBoot':None,'correlationState':'unavailable','exactConnectionIdentified':False}
+ try:
+  vm=vm_status();result['vmState']=vm if vm in {'started','stopped','paused','starting','stopping'} else 'unknown'
+  if vm!='started':result['probeState']='not-running'
+  else:
+   source='import json\nSSH_JOURNAL_MARKERS='+repr(SSH_JOURNAL_MARKERS)+'\n'+inspect.getsource(summarize_ssh_journal)+'\n'+inspect.getsource(capture_ssh_journal)+'\n'+inspect.getsource(guest_ssh_correlation)+'\nprint(json.dumps(guest_ssh_correlation('+repr(start)+','+repr(end)+')))\n'
+   before=time.time();probe=ssh('sudo -n /usr/bin/python3 -',input=source,timeout=15,phase='diagnostic-sample');after=time.time()
+   if len(probe.stdout.encode('utf-8'))>8192:raise ValueError('Oversized SSH sample')
+   server=json.loads(probe.stdout)
+   if not valid_ssh_server_sample(server):raise ValueError('Invalid SSH sample')
+   offsets=[server['guestObservedAtUnix']-after,server['guestObservedAtUnix']-before];comparable=offsets[0]>=-2 and offsets[1]<=2
+   result.update(probeState='read',server=server,currentClockOffsetRangeSeconds=offsets,correlationState='time-window-only' if comparable else 'clock-unconfirmed')
+   if comparable:
+    earliest=start+offsets[0];latest=start+offsets[1];boot=server['guestBootStartedAtUnix'];result['failureWindowWithinCurrentBoot']=True if earliest>=boot else False if latest<boot else None
+   else:server['journal']={'state':'unavailable','rows':None,'truncated':False,'markers':None}
+ except Exception as error:
+  trace=getattr(error,'trace',None)
+  if valid_ssh_trace(trace):result['probeFailureReference']=trace['id']
+ result['elapsedMs']=max(0,round((time.monotonic()-begin)*1000));recorded=store_ssh_correlation(result)
+ return {**result,'recorded':recorded}
 
 def vm_status():return command([UTM,'status',UUID],timeout=10).stdout.strip()
 
@@ -945,11 +1066,12 @@ console.log(JSON.stringify(result));
   return result
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile','clock-sync','ssh-diagnostics','clock-maintain']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--catalog-part',choices=['all','snapshots','images'],default='all');parser.add_argument('--archive-after');parser.add_argument('--snapshot-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile','clock-sync','ssh-diagnostics','ssh-correlate','clock-maintain']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--catalog-part',choices=['all','snapshots','images'],default='all');parser.add_argument('--archive-after');parser.add_argument('--snapshot-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');parser.add_argument('--reference');args=parser.parse_args()
  if args.action=='start':start(args.quiet)
  elif args.action=='clock-sync':validate();print(json.dumps(synchronize_clock()))
  elif args.action=='clock-maintain':print(json.dumps(maintain_clock()))
  elif args.action=='ssh-diagnostics':validate();print(json.dumps(ssh_diagnostics()))
+ elif args.action=='ssh-correlate':print(json.dumps(correlate_ssh_failure(args.reference)))
  elif args.action=='repair-profile':print(json.dumps(repair_profile(apply=args.apply_profile_repair)))
  elif args.action=='switch':switch(args.mode,args.quiet)
  elif args.action=='stop':stop()

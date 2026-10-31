@@ -3678,7 +3678,7 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
 }
 
 // Self-contained factory, embedded by scripts/build-client.mjs; no network or DOM work at import.
-function createSecurityTab(React,api){
+function createSecurityTab(React,api,options={}){
  const h=React.createElement;
  const toolNames={semgrep:'Semgrep · 代码检查',trivy:'Trivy · 依赖与配置',zap:'ZAP · 本地网页基线'};
  const statusNames={unverified:'待验证',confirmed:'已确认','false-positive':'误报',fixed:'已记录修复','retest-passed':'复测通过',reopened:'再次出现',running:'运行中',completed:'已完成',partial:'覆盖不完整',failed:'失败',cancelled:'已取消',interrupted:'中断'};
@@ -3697,6 +3697,40 @@ function createSecurityTab(React,api){
  const date=value=>string(value,64)&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value));
  const isTool=value=>typeof value==='string'&&Object.hasOwn(toolNames,value);
  const toolList=value=>Array.isArray(value)&&value.length>0&&value.length<=3&&new Set(value).size===value.length&&value.every(isTool);
+ const scopePath=value=>{if(!string(value)||!value.startsWith('/'))return null;const parts=[];for(const part of value.split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part)}return'/'+parts.join('/')};
+ const storage=()=>Object.hasOwn(options,'storage')?options.storage:globalThis.localStorage;
+ const receiptKey=eng=>{if(!string(eng,240)||!eng||/[\x00-\x1f]/.test(eng))throw Error('项目标识无效');return'dsh-security-request-v1:'+encodeURIComponent(eng)};
+ const validRequest=(value,eng)=>{
+  if(!record(value)||value.engagement!==eng||!string(value.requestId,100)||!/^[A-Za-z0-9_-]{8,100}$/.test(value.requestId))return false;
+  const keys={securityScopeSave:['confirm','expiresAt','repoRoot','revision','tools','url'],securityStart:['profileRevision','tool'],securityReview:['id','revision','status','note']};
+  if(typeof value.op!=='string'||!Object.hasOwn(keys,value.op))return false;
+  const expected=['op','engagement','requestId',...keys[value.op],...(value.op==='securityStart'&&Object.hasOwn(value,'retestFindingId')?['retestFindingId']:[])];
+  if(Object.keys(value).sort().join(',')!==expected.sort().join(','))return false;
+  if(value.op==='securityScopeSave')return value.confirm===true&&nonnegative(value.revision)&&string(value.repoRoot)&&!!value.repoRoot&&optionalString(value.url)&&date(value.expiresAt)&&toolList(value.tools);
+  if(value.op==='securityStart')return positive(value.profileRevision)&&isTool(value.tool)&&(!Object.hasOwn(value,'retestFindingId')||positive(value.retestFindingId));
+  return positive(value.id)&&positive(value.revision)&&['confirmed','false-positive','fixed'].includes(value.status)&&string(value.note,2000)&&value.note.trim().length>=5;
+ };
+ const readReceipt=eng=>{
+  let raw;
+  try{
+   raw=storage().getItem(receiptKey(eng));if(raw===null)return{owner:eng,raw,request:null,error:''};
+   if(typeof raw!=='string'||raw.length>16384)throw Error();const value=JSON.parse(raw);
+   if(!record(value)||Object.keys(value).sort().join(',')!=='createdAt,request,version'||value.version!==1||!positive(value.createdAt)||value.createdAt>Date.now()+60000||!validRequest(value.request,eng))throw Error();
+   return{owner:eng,raw,request:value.request,error:''};
+  }catch{return{owner:eng,raw,request:null,error:'浏览器恢复记录无法读取或无效；写入已暂停，请核对已保存任务与记录。'}}
+ };
+ const persistReceipt=request=>{
+  const current=readReceipt(request.engagement);if(current.error)throw Error(current.error);
+  if(!validRequest(request,request.engagement))throw Error('恢复记录无法保存：请求内容无效。');
+  if(current.request){if(JSON.stringify(current.request)!==JSON.stringify(request))throw Error('已有另一操作等待核对，请先处理恢复记录。');return current.request}
+  const raw=JSON.stringify({version:1,createdAt:Date.now(),request});if(raw.length>16384)throw Error('恢复记录无法保存：请求内容过长。');
+  try{const target=storage();target.setItem(receiptKey(request.engagement),raw);if(target.getItem(receiptKey(request.engagement))!==raw)throw Error()}catch{throw Error('浏览器恢复记录无法保存；操作未发送，请恢复浏览器存储后重新读取。')}
+  return JSON.parse(raw).request;
+ };
+ const releaseReceipt=request=>{
+  const current=readReceipt(request.engagement);if(current.error)throw Error(current.error);
+  if(current.request&&JSON.stringify(current.request)===JSON.stringify(request))storage().removeItem(receiptKey(request.engagement));
+ };
  const validProfile=value=>value===null||(record(value)&&positive(value.revision)&&string(value.repoRoot)&&value.repoRoot.length>0&&optionalString(value.url)&&date(value.expiresAt)&&toolList(value.tools));
  const validRuntime=value=>{
   if(!record(value)||typeof value.ready!=='boolean'||!(value.ready?string(value.version,128)&&value.version.length>0:optionalString(value.version))||!optionalString(value.reason)||!optionalString(value.warning)||(value.checkedAt!=null&&!date(value.checkedAt))||(value.cached!==undefined&&typeof value.cached!=='boolean'))return false;
@@ -3712,6 +3746,12 @@ function createSecurityTab(React,api){
   return snapshot==null||(record(snapshot)&&typeof snapshot.available==='boolean'&&optionalString(snapshot.reason));
  };
  const validFinding=value=>record(value)&&positive(value.id)&&positive(value.revision)&&isTool(value.tool)&&['title','rule','location','evidence','note','severity','status'].every(key=>string(value[key]))&&!!value.status&&!!value.rule&&!!value.location&&validSubject(value.subject)&&(value.identityVersion===undefined||[0,1].includes(value.identityVersion))&&(value.subject==null||value.identityVersion===1);
+ const confirmedMutation=(value,request)=>{
+  if(value?.ok!==true)return false;
+  if(request.op==='securityStart')return record(value.run)&&string(value.run.id,100)&&!!value.run.id&&['running','completed','partial','failed','cancelled','interrupted'].includes(value.run.state);
+  if(request.op==='securityScopeSave')return validProfile(value.profile)&&value.profile!==null&&value.profile.revision===request.revision+1&&value.profile.repoRoot===scopePath(request.repoRoot)&&(value.profile.url??'')===(request.url?new URL(request.url).origin:'')&&Date.parse(value.profile.expiresAt)===Date.parse(request.expiresAt)&&JSON.stringify(value.profile.tools)===JSON.stringify(request.tools);
+  return request.op==='securityReview'&&validFinding(value.finding)&&value.finding.id===request.id&&value.finding.revision===request.revision+1&&value.finding.status===request.status;
+ };
  const definiteRejection=(value,request)=>{
   const d=value.diagnostic;
   return d===undefined||record(d)&&Object.keys(d).sort().join(',')==='code,elapsedMs,operation,requestId,stage'&&string(d.requestId,36)&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(d.requestId)&&d.operation===request.op&&d.stage==='dispatch'&&d.code==='RPC_REJECTED'&&nonnegative(d.elapsedMs)&&d.elapsedMs<=86400000;
@@ -3735,13 +3775,18 @@ function createSecurityTab(React,api){
  };
  return function SecurityTab({engagement,refreshKey}){
   const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false),[loading,setLoading]=React.useState(true),[draft,setDraft]=React.useState(null),[notes,setNotes]=React.useState({}),[updateGuide,setUpdateGuide]=React.useState(false),[comparison,setComparison]=React.useState({owner:engagement,base:'',current:'',result:null,error:'',loading:false});
-  const [exporting,setExporting]=React.useState(false),[unconfirmed,setUnconfirmed]=React.useState(false),[searchDraft,setSearchDraft]=React.useState('');
-  const guard=React.useRef({alive:true,sequence:0,writing:false}),dirty=React.useRef(false),writeReceipt=React.useRef(null),compareGuard=React.useRef(0),exportGuard=React.useRef(null),pageQuery=React.useRef(freshPages(engagement));
+  const [exporting,setExporting]=React.useState(false),[unconfirmed,setUnconfirmed]=React.useState(false),[searchDraft,setSearchDraft]=React.useState(''),[storageError,setStorageError]=React.useState(''),[discardAck,setDiscardAck]=React.useState(false);
+  const guard=React.useRef({alive:true,sequence:0,writing:false,owner:engagement,context:0}),dirty=React.useRef(false),writeReceipt=React.useRef(null),journal=React.useRef(null),discardApproval=React.useRef(null),compareGuard=React.useRef(0),exportGuard=React.useRef(null),pageQuery=React.useRef(freshPages(engagement));
+  if(guard.current.owner!==engagement){guard.current.owner=engagement;guard.current.context++;writeReceipt.current=null;dirty.current=false;journal.current=null}
+  const contextAtRender=guard.current.context;
+  const restoreReceipt=()=>{const value=readReceipt(engagement);journal.current=value;writeReceipt.current=value.request;setStorageError(value.error);discardApproval.current=null;setDiscardAck(false)};
   const viewGeneration=guard.current.sequence;
+  const discardRaw=journal.current?.owner===engagement?journal.current.raw:undefined;
   const load=async({refreshRuntime=false,targetPages=null,resetPages=false}={})=>{
+   if(!guard.current.alive||guard.current.owner!==engagement||guard.current.context!==contextAtRender)return;
    const source=(targetPages??pageQuery.current).owner===engagement?(targetPages??pageQuery.current):freshPages(engagement);
    const target=resetPages?{...source,runs:{...source.runs,cursor:null,history:[]},findings:{...source.findings,cursor:null,history:[]}}:source,pages=requestPages(target);
-   const token=++guard.current.sequence;setLoading(true);exportGuard.current=null;setExporting(false);compareGuard.current++;setComparison(old=>old.owner===engagement?{...old,result:null,error:'',loading:false}:{owner:engagement,base:'',current:'',result:null,error:'',loading:false});
+   const token=++guard.current.sequence;restoreReceipt();setLoading(true);exportGuard.current=null;setExporting(false);compareGuard.current++;setComparison(old=>old.owner===engagement?{...old,result:null,error:'',loading:false}:{owner:engagement,base:'',current:'',result:null,error:'',loading:false});
    try{const next=await api({op:'securityStatus',engagement,pages,...(refreshRuntime?{refreshRuntime:true}:{})});if(!guard.current.alive||token!==guard.current.sequence)return;if(!valid(next,engagement,pages))throw Error(next?.ok===false&&typeof next.error==='string'?next.error:'安全审计资料无效，当前结果未确认');pageQuery.current=target;setData(next);setError('');setUnconfirmed(false);setDraft(old=>{if(dirty.current&&old)return old;const p=next.profile;return p?{...p,confirm:false}:{repoRoot:'',url:'',expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy'],revision:0,confirm:false}})}
    catch(e){if(guard.current.alive&&token===guard.current.sequence){setError(e.message||'读取失败');setUnconfirmed(true)}}
    finally{if(guard.current.alive&&token===guard.current.sequence)setLoading(false)}
@@ -3750,11 +3795,19 @@ function createSecurityTab(React,api){
   const running=data?.activeRun??data?.runs?.find(row=>row.state==='running');
   React.useEffect(()=>{if(!running)return;const timer=setInterval(load,2500);return()=>clearInterval(timer)},[running?.id,engagement,refreshKey]);
   const mutate=async(request,{receipt=false}={})=>{
-   if(guard.current.writing||!guard.current.alive)return;
+   if(guard.current.writing||!guard.current.alive||guard.current.context!==contextAtRender||guard.current.owner!==engagement||request?.engagement!==engagement)return;
+   const context=guard.current.context,current=()=>guard.current.alive&&context===guard.current.context;
    guard.current.writing=true;setBusy(true);setError('');
-   if(receipt)writeReceipt.current=request;
-   try{const result=await api(request);if(!guard.current.alive)return;if(result?.ok===false){if(definiteRejection(result,request))writeReceipt.current=null;throw Error(result.error||'操作已拒绝')}if(result?.ok!==true)throw Error('操作结果未确认');if(request.op==='securityScopeSave'){dirty.current=false;setDraft(old=>({...old,...result.profile,confirm:false}))}writeReceipt.current=null;await load({resetPages:true})}
-   catch(e){if(guard.current.alive)setError((e.message||'操作失败')+(receipt?'；可刷新查询结果。若重试，将复用同一请求号。':''))}
+   try{
+    if(receipt){try{request=persistReceipt(request);restoreReceipt()}catch(error){setStorageError(error.message);throw error}}
+    const result=await api(request);
+    if(receipt&&(confirmedMutation(result,request)||result?.ok===false&&definiteRejection(result,request)))releaseReceipt(request);
+    if(!current())return;
+    if(receipt)restoreReceipt();
+    if(result?.ok===false)throw Error(result.error||'操作已拒绝');if(result?.ok!==true||receipt&&!confirmedMutation(result,request))throw Error('操作回执无效，结果未确认');
+    if(request.op==='securityScopeSave'){dirty.current=false;setDraft(old=>({...old,...result.profile,confirm:false}))}await load({resetPages:true});
+   }
+   catch(e){if(current())setError((e.message||'操作失败')+(receipt?'；可刷新查询结果。若重试，将复用同一请求号。':''))}
    finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
   };
   const choices=data?.engagement===engagement?(data.comparisonRuns??data.runs.filter(run=>run.state==='completed'&&run.complete===1)):[],ownedComparison=comparison.owner===engagement?comparison:null;
@@ -3769,7 +3822,12 @@ function createSecurityTab(React,api){
   };
   const comparisonValue=ownedComparison?.result?.baseRunId===baseId&&ownedComparison?.result?.currentRunId===currentId?ownedComparison.result:null,comparisonGeneration=compareGuard.current;
   const downloadComparison=()=>{if(!guard.current.alive||comparisonGeneration!==compareGuard.current||!comparisonValue?.available)return;const url=URL.createObjectURL(new Blob([comparisonValue.markdown],{type:'text/markdown;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='security-comparison-'+engagement+'.md';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  const change=(key,value)=>{dirty.current=true;writeReceipt.current=null;setDraft(old=>({...old,[key]:value}))};
+  const change=(key,value)=>{if(!guard.current.alive||guard.current.context!==contextAtRender||writeReceipt.current||storageError)return;dirty.current=true;setDraft(old=>({...old,[key]:value}))};
+  const discardReceipt=async()=>{
+   if(!discardAck||busy||loading||unconfirmed||guard.current.writing||guard.current.sequence!==viewGeneration||guard.current.context!==contextAtRender||guard.current.owner!==engagement||journal.current?.owner!==engagement||discardApproval.current?.raw!==discardRaw||discardApproval.current?.generation!==viewGeneration)return;
+   try{const target=storage(),key=receiptKey(engagement);if(discardRaw===undefined||journal.current.raw!==discardRaw||target.getItem(key)!==discardRaw)throw Error();target.removeItem(key);restoreReceipt();await load({resetPages:true})}
+   catch{restoreReceipt();setError('恢复记录已变化或无法清除；请重新读取后核对。')}
+  };
   const save=()=>mutate({op:'securityScopeSave',engagement,requestId:id(),...draft},{receipt:true});
   const start=(tool,finding)=>mutate({op:'securityStart',engagement,requestId:id(),profileRevision:data.profile.revision,tool,...(finding?{retestFindingId:finding.id}:{})},{receipt:true});
   const review=(finding,status)=>mutate({op:'securityReview',engagement,requestId:id(),id:finding.id,revision:finding.revision,status,note:notes[finding.id]||''},{receipt:true});
@@ -3786,8 +3844,8 @@ function createSecurityTab(React,api){
    finally{if(current()){exportGuard.current=null;setExporting(false)}}
   };
   const button=(label,onClick,disabled=false)=>h('button',{type:'button',className:'rt-btn',onClick,disabled:busy||disabled},label);
-  const field=(label,key,type='text')=>h('label',{className:'rts-field'},h('span',null,label),h('input',{className:'rt-input',type,value:draft?.[key]||'',disabled:busy,onChange:e=>change(key,e.target.value)}));
-  const actionable=data&&data.engagement===engagement&&!error&&!loading&&!busy&&!running&&!writeReceipt.current;
+  const field=(label,key,type='text')=>h('label',{className:'rts-field'},h('span',null,label),h('input',{className:'rt-input',type,value:draft?.[key]||'',disabled:busy||!!writeReceipt.current||!!storageError,onChange:e=>change(key,e.target.value)}));
+  const actionable=data&&data.engagement===engagement&&!error&&!loading&&!busy&&!running&&!writeReceipt.current&&!storageError;
   const pageDisabled=loading||busy||!!error||data?.engagement!==engagement;
   const movePage=(collection,forward)=>{
    if(pageDisabled)return;const current=pageQuery.current[collection],meta=data?.pagination?.[collection];if(!meta||forward&&!meta.hasMore||!forward&&!current.history.length)return;
@@ -3796,6 +3854,7 @@ function createSecurityTab(React,api){
   };
   const filterPage=(collection,key,value)=>{if(pageDisabled)return;return load({targetPages:{...pageQuery.current,[collection]:{...pageQuery.current[collection],[key]:value,cursor:null,history:[]}}})};
   const pageTitle=collection=>{const meta=data?.pagination?.[collection],current=pageQuery.current[collection];return meta?'第'+(current.history.length+1)+'页 · 本页 '+data[collection].length+' · 匹配 '+meta.total+' / 全部 '+data[collection==='runs'?'totalRuns':'totalFindings']:null};
+  const pendingRequest=writeReceipt.current;
   const pageControls=collection=>{
    const meta=data?.pagination?.[collection];if(!meta)return null;const name=collection==='runs'?'任务':'发现',current=pageQuery.current[collection];
    const select=(key,title,values)=>h('label',{className:'rts-field'},title,h('select',{'aria-label':title,className:'rt-input',value:current[key],disabled:pageDisabled,onChange:e=>filterPage(collection,key,e.target.value)},h('option',{value:''},'全部'),...values.map(value=>h('option',{key:value,value},key==='tool'?label(toolNames,value):label(statusNames,value,value)))));
@@ -3819,13 +3878,13 @@ function createSecurityTab(React,api){
    error&&h('div',{className:'rt-err',role:'alert'},error),
    data&&unconfirmed&&h('p',{className:'rts-alert'},'当前资料未确认，以下为上次成功读取结果；写入和导出已暂停，请刷新核对。'),
    running&&!data.runs.some(row=>row.id===running.id)&&h('div',{className:'rts-alert'},'当前运行任务：'+running.id,button('取消当前任务',()=>mutate({op:'securityCancel',engagement,id:running.id}),loading||unconfirmed)),
-   writeReceipt.current&&h('div',{className:'rts-alert'},'有一个操作尚未取得确认，刷新后可重试同一请求。',button('重试同一请求',()=>mutate(writeReceipt.current,{receipt:true}),loading||unconfirmed)),
+   (pendingRequest||storageError)&&h('section',{className:'rts-alert','aria-label':'恢复未确认操作'},h('h4',null,'恢复未确认操作'),h('p',null,storageError||'发现本浏览器保存的未确认操作；不会自动重发。请先核对已保存任务与以下原始请求内容。'),pendingRequest&&h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},JSON.stringify(pendingRequest,null,2)),pendingRequest&&button('重试同一请求',()=>mutate(pendingRequest,{receipt:true}),loading||unconfirmed||!!storageError),button('重新读取恢复记录',()=>load({resetPages:true}),loading),journal.current?.raw!==undefined&&journal.current?.raw!==null&&h('div',null,h('label',null,h('input',{type:'checkbox','aria-label':'确认清除恢复提示',checked:discardAck,disabled:busy||loading||unconfirmed,onChange:e=>{if(guard.current.context!==contextAtRender||guard.current.sequence!==viewGeneration||journal.current?.raw!==discardRaw)return;discardApproval.current=e.target.checked?{raw:discardRaw,generation:viewGeneration}:null;setDiscardAck(e.target.checked)}}),' 我已核对记录；清除此提示不会取消、撤销或证明原操作未执行。'),button('仅清除恢复提示',discardReceipt,!discardAck||loading||unconfirmed))),
    !data&&!error&&h('p',null,'正在读取项目配置…'),
    data&&draft&&h('section',{className:'rt-card','aria-label':'项目审计范围'},h('h4',null,'项目审计范围'),h('p',{className:'rts-meta'},'仅扫描 /home/purge/workspace 下的所选目录；ZAP 第一期仅接入 VM 内 127.0.0.1 的明确端口。'),
     h('div',{className:'rts-grid'},field('仓库绝对路径','repoRoot'),field('VM 本地网址（ZAP 必填）','url','url'),field('授权到期时间（ISO 8601）','expiresAt')),
     h('div',{className:'rts-tools'},...Object.keys(toolNames).map(tool=>h('label',{key:tool},h('input',{type:'checkbox',checked:draft.tools.includes(tool),disabled:busy,onChange:e=>change('tools',e.target.checked?[...draft.tools,tool]:draft.tools.filter(v=>v!==tool))}),' '+tool.toUpperCase()))),
     h('label',null,h('input',{type:'checkbox',checked:!!draft.confirm,disabled:busy,onChange:e=>change('confirm',e.target.checked)}),' 我确认上述目录和本地网址可进行所选检查'),
-    h('div',{className:'rts-actions'},button('保存范围',save,!actionable||!draft.confirm||!draft.repoRoot||!draft.tools.length),draft.revision!==(data.profile?.revision||0)&&button('采用最新范围（丢弃本地草稿）',()=>{dirty.current=false;writeReceipt.current=null;setDraft({...data.profile,confirm:false})},!!running),h('span',{className:'rts-meta'},'当前版本 '+(data.profile?.revision||0)+(expired?' · 未配置或已过期':'')))),
+    h('div',{className:'rts-actions'},button('保存范围',save,!actionable||!draft.confirm||!draft.repoRoot||!draft.tools.length),draft.revision!==(data.profile?.revision||0)&&button('采用最新范围（丢弃本地草稿）',()=>{dirty.current=false;setDraft({...data.profile,confirm:false})},!!running||!!writeReceipt.current||!!storageError),h('span',{className:'rts-meta'},'当前版本 '+(data.profile?.revision||0)+(expired?' · 未配置或已过期':'')))),
    data&&h('div',{className:'rts-grid'},...Object.keys(toolNames).map(tool=>h('section',{key:tool,className:'rt-card'},h('h4',null,toolNames[tool]),h('div',{className:'rts-meta'},data.tools[tool]?.ready?'已就绪 · '+data.tools[tool].version:(data.tools[tool]?.reason||'工具或离线数据库未就绪')),data.tools[tool]?.rules&&h('p',{className:'rts-meta'},'本地规则：'+data.tools[tool].rules.version+' · '+data.tools[tool].rules.count+' 条 · '+data.tools[tool].rules.languages.join(' / ')),data.tools[tool]?.checkedAt&&h('p',{className:'rts-meta'},'资源核对：'+data.tools[tool].checkedAt+(data.tools[tool].cached?' · 30秒内缓存':'')),data.tools[tool]?.database?.updatedAt&&h('p',{className:'rts-meta'},'漏洞库更新：'+data.tools[tool].database.updatedAt+' · '+data.tools[tool].database.ageDays+'天'),data.tools[tool]?.lastUpdate&&h('p',{className:'rts-meta'},'上次维护：'+label(maintenanceNames,data.tools[tool].lastUpdate.state,'未确认')+' · '+data.tools[tool].lastUpdate.checkedAt),data.tools[tool]?.warning&&h('p',{className:'rts-alert'},data.tools[tool].warning),h('p',{className:'rts-meta'},tool==='semgrep'?'本地启发式规则；需人工复核，不代表完整覆盖；不上传源码':tool==='trivy'?'离线数据库；检查依赖、配置和凭据痕迹':'被动检查与短时爬取；会向所选本地应用发送请求'),button('开始检查',()=>start(tool),!actionable||expired||!data.profile?.tools.includes(tool)||!data.tools[tool]?.ready||dirty.current)))),
    data&&h('section',{className:'rt-card','aria-label':'审计任务'},h('h4',null,'审计任务 · '+(pageTitle('runs')??('最近 '+data.runs.length+(data.totalRuns===undefined?'':' / '+data.totalRuns)))),pageControls('runs'),!data.runs.length&&h('p',null,data.pagination?'当前筛选没有匹配任务':'尚未运行检查'),...data.runs.map(run=>h('div',{key:run.id,className:'rts-run'},h('div',null,run.tool.toUpperCase()+' · '+label(statusNames,run.state)+' · '+run.started_at),h('div',{className:'rts-meta'},run.id+' · '+(run.revision_ref||'工作区扫描')+(run.error_code?' · '+run.error_code:'')),run.details?.diagnostics&&h('div',{className:'rts-alert'},'扫描诊断 '+run.details.diagnostics.total+' 项'+(run.details.diagnostics.truncated?' · 显示前20项':''),...run.details.diagnostics.items.map((d,index)=>h('p',{key:index},d.code+' · '+d.path+(d.line?':'+d.line:'')))),run.state==='partial'&&!run.details?.diagnostics&&h('p',{className:'rts-meta'},'旧任务未保存具体覆盖诊断；保持覆盖不完整，请重新检查后核对。'),run.state==='running'&&button('取消任务',()=>mutate({op:'securityCancel',engagement,id:run.id}),loading||unconfirmed)))),
    data&&h('section',{className:'rt-card','aria-label':'扫描结果对比'},
