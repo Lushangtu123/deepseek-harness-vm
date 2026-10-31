@@ -2,15 +2,28 @@ import contextlib
 import importlib.util
 import io
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
+import shlex
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 
 
 class LauncherTests(unittest.TestCase):
+ def test_database_menu_is_explicit_and_check_does_not_start_vm(self):
+  module=self.load();self.assertTrue(callable(getattr(module,'database_update',None)),'Database maintenance entry is missing')
+  with patch.object(module,'database_update',return_value=0) as action,patch.object(module,'load_manager') as load,patch('builtins.input',side_effect=['1']),contextlib.redirect_stdout(io.StringIO()):module.execute('9')
+  action.assert_called_once_with(['--check']);load.assert_not_called()
+ def test_database_update_cancel_does_not_call_updater(self):
+  module=self.load();self.assertTrue(callable(getattr(module,'database_update',None)))
+  with patch.object(module,'database_update') as action,patch.object(module,'load_manager') as load,patch('builtins.input',side_effect=['2','取消']),contextlib.redirect_stdout(io.StringIO()):module.execute('9')
+  action.assert_not_called();load.assert_not_called()
+ def test_database_update_and_recovery_require_distinct_confirmation(self):
+  module=self.load();self.assertTrue(callable(getattr(module,'database_update',None)))
+  for choice,word,args in [('2','更新',[]),('3','恢复',['--recover-last'])]:
+   with self.subTest(choice=choice),patch.object(module,'database_update',return_value=0) as action,patch('builtins.input',side_effect=[choice,word]),contextlib.redirect_stdout(io.StringIO()):module.execute('9');action.assert_called_once_with(args)
  def load(self):
   path=Path(__file__).with_name('harness_launcher.py')
   self.assertTrue(path.is_file(),'Unified Harness menu is missing')
@@ -120,10 +133,11 @@ class LauncherTests(unittest.TestCase):
  def test_command_resolves_support_script_from_folder_with_spaces(self):
   source=Path(__file__).resolve().parents[1]/'Harness.command'
   self.assertTrue(source.is_file(),'Single double-click entry is missing')
+  canonical=source.read_text();self.assertIn('exec /opt/homebrew/bin/python3 ',canonical,'Production Mac interpreter policy changed')
   with tempfile.TemporaryDirectory(prefix='Harness launch ') as directory:
-   root=Path(directory);shutil.copyfile(source,root/source.name);(root/'scripts').mkdir()
+   root=Path(directory);(root/source.name).write_text(canonical.replace('/opt/homebrew/bin/python3',shlex.quote(sys.executable),1));(root/'scripts').mkdir()
    (root/'scripts/harness_launcher.py').write_text("print('RELATIVE_LAUNCH_OK')\n")
-   result=subprocess.run(['/bin/sh',str(root/source.name)],cwd='/private/tmp',capture_output=True,text=True,timeout=5)
+   result=subprocess.run(['/bin/sh',str(root/source.name)],cwd=tempfile.gettempdir(),capture_output=True,text=True,timeout=5)
    self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout.strip(),'RELATIVE_LAUNCH_OK')
 
 

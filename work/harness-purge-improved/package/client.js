@@ -3677,6 +3677,173 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
   return { check, dispose() { disposed = true; generation++; controller?.abort() } }
 }
 
+// Self-contained factory, embedded by scripts/build-client.mjs; no network or DOM work at import.
+function createSecurityTab(React,api){
+ const h=React.createElement;
+ const toolNames={semgrep:'Semgrep · 代码检查',trivy:'Trivy · 依赖与配置',zap:'ZAP · 本地网页基线'};
+ const statusNames={unverified:'待验证',confirmed:'已确认','false-positive':'误报',fixed:'已记录修复','retest-passed':'复测通过',reopened:'再次出现',running:'运行中',completed:'已完成',partial:'覆盖不完整',failed:'失败',cancelled:'已取消',interrupted:'中断'};
+ const label=(labels,key,fallback=key)=>Object.hasOwn(labels,key)?labels[key]:fallback;
+ const maintenanceNames={current:'已与官方版本核对',updated:'已更新','rolled-back':'已恢复原库'};
+ const comparisonLabels={added:'新增命中位置',persisting:'仍存在的命中位置',notSeen:'已覆盖文件中未再次命中',uncovered:'覆盖未证实'};
+ const comparisonValid=(value,request)=>value?.ok===true&&value.engagement===request.engagement&&value.baseRunId===request.baseRunId&&value.currentRunId===request.currentRunId&&typeof value.available==='boolean'&&(value.available?typeof value.notice==='string'&&typeof value.markdown==='string'&&typeof value.truncated==='boolean'&&Object.keys(comparisonLabels).every(key=>Number.isSafeInteger(value.summary?.[key])&&value.summary[key]>=0&&Array.isArray(value.items?.[key])&&value.items[key].length<=100&&value.items[key].every(item=>item&&['rule','title','severity','location'].every(field=>typeof item[field]==='string')&&validSubject(item.subject))):typeof value.reason==='string');
+ const id=()=>globalThis.crypto?.randomUUID?.()||'request-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+ const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+ const string=(value,max=8192)=>typeof value==='string'&&value.length<=max;
+ const optionalString=value=>value==null||string(value);
+ const positive=value=>Number.isSafeInteger(value)&&value>0;
+ const nonnegative=value=>Number.isSafeInteger(value)&&value>=0;
+ const validSubject=value=>value==null||(record(value)&&value.kind==='package'&&[['name',240],['version',240],['path',800],['purl',1200],['key',64],['family',64]].every(([key,max])=>string(value[key],max))&&!!value.name&&/^[a-f0-9]{64}$/.test(value.key)&&/^[a-f0-9]{64}$/.test(value.family));
+ const subjectText=value=>value.name+'@'+(value.version||'版本未记录')+(value.path?' · '+value.path:'');
+ const date=value=>string(value,64)&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value));
+ const isTool=value=>typeof value==='string'&&Object.hasOwn(toolNames,value);
+ const toolList=value=>Array.isArray(value)&&value.length>0&&value.length<=3&&new Set(value).size===value.length&&value.every(isTool);
+ const validProfile=value=>value===null||(record(value)&&positive(value.revision)&&string(value.repoRoot)&&value.repoRoot.length>0&&optionalString(value.url)&&date(value.expiresAt)&&toolList(value.tools));
+ const validRuntime=value=>{
+  if(!record(value)||typeof value.ready!=='boolean'||!(value.ready?string(value.version,128)&&value.version.length>0:optionalString(value.version))||!optionalString(value.reason)||!optionalString(value.warning)||(value.checkedAt!=null&&!date(value.checkedAt))||(value.cached!==undefined&&typeof value.cached!=='boolean'))return false;
+  if(value.rules!=null&&(!record(value.rules)||!string(value.rules.version,128)||!positive(value.rules.count)||value.rules.count>1000||!Array.isArray(value.rules.languages)||!value.rules.languages.length||value.rules.languages.length>100||!value.rules.languages.every(language=>string(language,128)&&language.length>0)))return false;
+  if(value.database!=null&&(!record(value.database)||(value.database.updatedAt!=null&&(!date(value.database.updatedAt)||!nonnegative(value.database.ageDays)))))return false;
+  return value.lastUpdate==null||(record(value.lastUpdate)&&string(value.lastUpdate.state,128)&&date(value.lastUpdate.checkedAt));
+ };
+ const validRun=value=>{
+  if(!record(value)||!string(value.id,100)||!value.id||!isTool(value.tool)||!string(value.state,128)||!value.state||![0,1].includes(value.complete)||!date(value.started_at)||!optionalString(value.revision_ref)||!optionalString(value.error_code)||(value.details!==undefined&&!record(value.details)))return false;
+  const diagnostics=value.details?.diagnostics;
+  if(diagnostics!=null&&(!record(diagnostics)||!nonnegative(diagnostics.total)||!Array.isArray(diagnostics.items)||diagnostics.items.length>20||diagnostics.items.length>diagnostics.total||typeof diagnostics.truncated!=='boolean'||diagnostics.items.some(d=>!record(d)||!string(d.code,80)||!string(d.path,400)||!(d.line===null||positive(d.line)))))return false;
+  const snapshot=value.details?.comparisonSnapshot;
+  return snapshot==null||(record(snapshot)&&typeof snapshot.available==='boolean'&&optionalString(snapshot.reason));
+ };
+ const validFinding=value=>record(value)&&positive(value.id)&&positive(value.revision)&&isTool(value.tool)&&['title','rule','location','evidence','note','severity','status'].every(key=>string(value[key]))&&!!value.status&&!!value.rule&&!!value.location&&validSubject(value.subject)&&(value.identityVersion===undefined||[0,1].includes(value.identityVersion))&&(value.subject==null||value.identityVersion===1);
+ const definiteRejection=(value,request)=>{
+  const d=value.diagnostic;
+  return d===undefined||record(d)&&Object.keys(d).sort().join(',')==='code,elapsedMs,operation,requestId,stage'&&string(d.requestId,36)&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(d.requestId)&&d.operation===request.op&&d.stage==='dispatch'&&d.code==='RPC_REJECTED'&&nonnegative(d.elapsedMs)&&d.elapsedMs<=86400000;
+ };
+ const freshPages=owner=>({owner,runs:{cursor:null,limit:10,history:[],tool:'',state:''},findings:{cursor:null,limit:50,history:[],tool:'',status:'',severity:'',search:''}});
+ const requestPages=value=>Object.fromEntries(['runs','findings'].map(key=>{const {history,...query}=value[key];return[key,query]}));
+ const validPage=(page,query,rows,collection)=>{
+  if(!record(page)||!positive(page.limit)||page.limit!==(query.limit??(collection==='runs'?10:50))||page.cursor!==(query.cursor??null)||!nonnegative(page.total)||page.total<rows.length||rows.length>page.limit||typeof page.hasMore!=='boolean'||!record(page.filters))return false;
+  const keys=collection==='runs'?['tool','state']:['tool','status','severity','search'];
+  if(Object.keys(page.filters).sort().join(',')!==keys.slice().sort().join(',')||keys.some(key=>page.filters[key]!==((query[key]??'').trim())))return false;
+  if(page.cursor===null&&rows.length!==Math.min(page.limit,page.total))return false;
+  return page.hasMore?rows.length===page.limit&&page.total>rows.length&&string(page.nextCursor,512)&&/^[A-Za-z0-9_-]+$/.test(page.nextCursor):page.nextCursor===null;
+ };
+ const valid=(v,eng,query)=>{
+  if(!record(v)||v.ok!==true||v.engagement!==eng||!validProfile(v.profile)||!record(v.tools)||!Object.keys(toolNames).every(tool=>validRuntime(v.tools[tool]))||!date(v.observedAt))return false;
+  if(v.pagination!==undefined){
+   if(!record(v.pagination)||!nonnegative(v.totalRuns)||!nonnegative(v.totalFindings)||!(v.activeRun===null||validRun(v.activeRun)&&v.activeRun.state==='running')||!Array.isArray(v.comparisonRuns)||v.comparisonRuns.length>30||v.comparisonRuns.some(row=>!validRun(row)||row.state!=='completed'||row.complete!==1)||new Set(v.comparisonRuns.map(row=>row.id)).size!==v.comparisonRuns.length)return false;
+   return [['runs',v.totalRuns,validRun],['findings',v.totalFindings,validFinding]].every(([key,total,check])=>Array.isArray(v[key])&&v[key].every(check)&&new Set(v[key].map(row=>row.id)).size===v[key].length&&validPage(v.pagination[key],query[key],v[key],key)&&v.pagination[key].total<=total);
+  }
+  return [['runs',30,'totalRuns',validRun],['findings',500,'totalFindings',validFinding]].every(([key,limit,total,check])=>Array.isArray(v[key])&&v[key].length<=limit&&v[key].every(check)&&new Set(v[key].map(row=>row.id)).size===v[key].length&&(v[total]===undefined||(nonnegative(v[total])&&v[key].length===Math.min(limit,v[total]))));
+ };
+ return function SecurityTab({engagement,refreshKey}){
+  const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false),[loading,setLoading]=React.useState(true),[draft,setDraft]=React.useState(null),[notes,setNotes]=React.useState({}),[updateGuide,setUpdateGuide]=React.useState(false),[comparison,setComparison]=React.useState({owner:engagement,base:'',current:'',result:null,error:'',loading:false});
+  const [exporting,setExporting]=React.useState(false),[unconfirmed,setUnconfirmed]=React.useState(false),[searchDraft,setSearchDraft]=React.useState('');
+  const guard=React.useRef({alive:true,sequence:0,writing:false}),dirty=React.useRef(false),writeReceipt=React.useRef(null),compareGuard=React.useRef(0),exportGuard=React.useRef(null),pageQuery=React.useRef(freshPages(engagement));
+  const viewGeneration=guard.current.sequence;
+  const load=async({refreshRuntime=false,targetPages=null,resetPages=false}={})=>{
+   const source=(targetPages??pageQuery.current).owner===engagement?(targetPages??pageQuery.current):freshPages(engagement);
+   const target=resetPages?{...source,runs:{...source.runs,cursor:null,history:[]},findings:{...source.findings,cursor:null,history:[]}}:source,pages=requestPages(target);
+   const token=++guard.current.sequence;setLoading(true);exportGuard.current=null;setExporting(false);compareGuard.current++;setComparison(old=>old.owner===engagement?{...old,result:null,error:'',loading:false}:{owner:engagement,base:'',current:'',result:null,error:'',loading:false});
+   try{const next=await api({op:'securityStatus',engagement,pages,...(refreshRuntime?{refreshRuntime:true}:{})});if(!guard.current.alive||token!==guard.current.sequence)return;if(!valid(next,engagement,pages))throw Error(next?.ok===false&&typeof next.error==='string'?next.error:'安全审计资料无效，当前结果未确认');pageQuery.current=target;setData(next);setError('');setUnconfirmed(false);setDraft(old=>{if(dirty.current&&old)return old;const p=next.profile;return p?{...p,confirm:false}:{repoRoot:'',url:'',expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy'],revision:0,confirm:false}})}
+   catch(e){if(guard.current.alive&&token===guard.current.sequence){setError(e.message||'读取失败');setUnconfirmed(true)}}
+   finally{if(guard.current.alive&&token===guard.current.sequence)setLoading(false)}
+  };
+  React.useEffect(()=>{guard.current.alive=true;if(pageQuery.current.owner!==engagement)setSearchDraft('');load({resetPages:true});return()=>{guard.current.alive=false;guard.current.sequence++}},[engagement,refreshKey]);
+  const running=data?.activeRun??data?.runs?.find(row=>row.state==='running');
+  React.useEffect(()=>{if(!running)return;const timer=setInterval(load,2500);return()=>clearInterval(timer)},[running?.id,engagement,refreshKey]);
+  const mutate=async(request,{receipt=false}={})=>{
+   if(guard.current.writing||!guard.current.alive)return;
+   guard.current.writing=true;setBusy(true);setError('');
+   if(receipt)writeReceipt.current=request;
+   try{const result=await api(request);if(!guard.current.alive)return;if(result?.ok===false){if(definiteRejection(result,request))writeReceipt.current=null;throw Error(result.error||'操作已拒绝')}if(result?.ok!==true)throw Error('操作结果未确认');if(request.op==='securityScopeSave'){dirty.current=false;setDraft(old=>({...old,...result.profile,confirm:false}))}writeReceipt.current=null;await load({resetPages:true})}
+   catch(e){if(guard.current.alive)setError((e.message||'操作失败')+(receipt?'；可刷新查询结果。若重试，将复用同一请求号。':''))}
+   finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
+  };
+  const choices=data?.engagement===engagement?(data.comparisonRuns??data.runs.filter(run=>run.state==='completed'&&run.complete===1)):[],ownedComparison=comparison.owner===engagement?comparison:null;
+  const currentId=ownedComparison?.current||choices[0]?.id||'',baseId=ownedComparison?.base||choices[1]?.id||'';
+  const selectComparison=(key,value)=>{compareGuard.current++;setComparison({owner:engagement,base:baseId,current:currentId,[key]:value,result:null,error:'',loading:false})};
+  const compareSelected=async()=>{
+   if(ownedComparison?.loading||!baseId||!currentId||baseId===currentId||!guard.current.alive)return;
+   const request={op:'securityCompare',engagement,baseRunId:baseId,currentRunId:currentId},token=++compareGuard.current;
+   setComparison({owner:engagement,base:baseId,current:currentId,result:null,error:'',loading:true});
+   try{const value=await api(request);if(!guard.current.alive||token!==compareGuard.current)return;if(!comparisonValid(value,request))throw Error(value?.error||'对比结果未确认');setComparison({owner:engagement,base:baseId,current:currentId,result:value,error:'',loading:false})}
+   catch(error){if(guard.current.alive&&token===compareGuard.current)setComparison({owner:engagement,base:baseId,current:currentId,result:null,error:error.message||'对比读取失败',loading:false})}
+  };
+  const comparisonValue=ownedComparison?.result?.baseRunId===baseId&&ownedComparison?.result?.currentRunId===currentId?ownedComparison.result:null,comparisonGeneration=compareGuard.current;
+  const downloadComparison=()=>{if(!guard.current.alive||comparisonGeneration!==compareGuard.current||!comparisonValue?.available)return;const url=URL.createObjectURL(new Blob([comparisonValue.markdown],{type:'text/markdown;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='security-comparison-'+engagement+'.md';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+  const change=(key,value)=>{dirty.current=true;writeReceipt.current=null;setDraft(old=>({...old,[key]:value}))};
+  const save=()=>mutate({op:'securityScopeSave',engagement,requestId:id(),...draft},{receipt:true});
+  const start=(tool,finding)=>mutate({op:'securityStart',engagement,requestId:id(),profileRevision:data.profile.revision,tool,...(finding?{retestFindingId:finding.id}:{})},{receipt:true});
+  const review=(finding,status)=>mutate({op:'securityReview',engagement,requestId:id(),id:finding.id,revision:finding.revision,status,note:notes[finding.id]||''},{receipt:true});
+  const download=async()=>{
+   if(!guard.current.alive||viewGeneration!==guard.current.sequence||exportGuard.current||loading||error||data?.engagement!==engagement)return;
+   const token={generation:viewGeneration};exportGuard.current=token;setExporting(true);
+   const current=()=>guard.current.alive&&viewGeneration===guard.current.sequence&&exportGuard.current===token;
+   try{
+    const report=await api({op:'securityReport',engagement});if(!current())return;
+    if(report?.ok!==true||report.engagement!==engagement||typeof report.markdown!=='string')throw Error('报告未确认，请刷新后重试');
+    const url=URL.createObjectURL(new Blob([report.markdown],{type:'text/markdown;charset=utf-8'}));
+    try{const a=document.createElement('a');a.href=url;a.download='security-audit-'+engagement+'.md';a.click()}finally{setTimeout(()=>URL.revokeObjectURL(url),1000)}
+   }catch(e){if(current())setError(e.message||'报告下载失败')}
+   finally{if(current()){exportGuard.current=null;setExporting(false)}}
+  };
+  const button=(label,onClick,disabled=false)=>h('button',{type:'button',className:'rt-btn',onClick,disabled:busy||disabled},label);
+  const field=(label,key,type='text')=>h('label',{className:'rts-field'},h('span',null,label),h('input',{className:'rt-input',type,value:draft?.[key]||'',disabled:busy,onChange:e=>change(key,e.target.value)}));
+  const actionable=data&&data.engagement===engagement&&!error&&!loading&&!busy&&!running&&!writeReceipt.current;
+  const pageDisabled=loading||busy||!!error||data?.engagement!==engagement;
+  const movePage=(collection,forward)=>{
+   if(pageDisabled)return;const current=pageQuery.current[collection],meta=data?.pagination?.[collection];if(!meta||forward&&!meta.hasMore||!forward&&!current.history.length)return;
+   const next=forward?{...current,cursor:meta.nextCursor,history:[...current.history,current.cursor]}:{...current,cursor:current.history.at(-1),history:current.history.slice(0,-1)};
+   return load({targetPages:{...pageQuery.current,[collection]:next}});
+  };
+  const filterPage=(collection,key,value)=>{if(pageDisabled)return;return load({targetPages:{...pageQuery.current,[collection]:{...pageQuery.current[collection],[key]:value,cursor:null,history:[]}}})};
+  const pageTitle=collection=>{const meta=data?.pagination?.[collection],current=pageQuery.current[collection];return meta?'第'+(current.history.length+1)+'页 · 本页 '+data[collection].length+' · 匹配 '+meta.total+' / 全部 '+data[collection==='runs'?'totalRuns':'totalFindings']:null};
+  const pageControls=collection=>{
+   const meta=data?.pagination?.[collection];if(!meta)return null;const name=collection==='runs'?'任务':'发现',current=pageQuery.current[collection];
+   const select=(key,title,values)=>h('label',{className:'rts-field'},title,h('select',{'aria-label':title,className:'rt-input',value:current[key],disabled:pageDisabled,onChange:e=>filterPage(collection,key,e.target.value)},h('option',{value:''},'全部'),...values.map(value=>h('option',{key:value,value},key==='tool'?label(toolNames,value):label(statusNames,value,value)))));
+   return h('div',null,h('div',{className:'rts-grid'},select('tool',name+'工具',Object.keys(toolNames)),...(collection==='runs'?[select('state','任务状态',['running','completed','partial','failed','cancelled','interrupted'])]:[select('status','发现状态',['unverified','confirmed','false-positive','fixed','retest-passed','reopened']),select('severity','发现严重性',['critical','high','medium','low','info','unknown']),h('label',{className:'rts-field'},'标题、规则或位置',h('input',{'aria-label':'发现搜索',className:'rt-input',value:searchDraft,maxLength:160,disabled:pageDisabled,onChange:e=>setSearchDraft(e.target.value),onKeyDown:e=>{if(e.key==='Enter')filterPage('findings','search',searchDraft.trim())}}))])),h('nav',{'aria-label':name+'分页',className:'rts-actions'},button(name+'上一页',()=>movePage(collection,false),pageDisabled||!current.history.length),button(name+'下一页',()=>movePage(collection,true),pageDisabled||!meta.hasMore),collection==='findings'&&button('搜索发现',()=>filterPage('findings','search',searchDraft.trim()),pageDisabled)),h('p',{className:'rts-meta'},'筛选仅影响列表；报告仍按项目全部记录生成。'));
+  };
+  const expired=!data?.profile||Date.parse(data.profile.expiresAt)<=Date.now();
+  const comparisonFields=[['基线任务','base',baseId],['本次任务','current',currentId]].map(([label,key,value])=>{
+   const options=choices.map(run=>h('option',{key:run.id,value:run.id},run.tool.toUpperCase()+' · '+run.started_at+' · '+run.id.slice(0,8)+(run.details?.comparisonSnapshot?.available?'':' · 无完整快照')));
+   return h('label',{key,className:'rts-field'},label,h('select',{className:'rt-input',value,disabled:loading||busy,onChange:e=>selectComparison(key,e.target.value)},h('option',{value:''},'选择任务'),...options));
+  });
+  const comparisonGroups=comparisonValue?.available?Object.entries(comparisonLabels).map(([key,label])=>{
+   const rows=comparisonValue.items[key].map((item,index)=>h('li',{key:index},item.rule+' · '+item.location+(item.subject?' · '+subjectText(item.subject):'')+' · '+item.title));
+   return h('details',{key},h('summary',null,label+' · '+comparisonValue.summary[key]),h('ul',null,...rows));
+  }):[];
+  return h('div',{className:'rt-pane rt-security'},
+   h('style',null,'.rt-security{display:flex;flex-direction:column;gap:14px}.rts-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.rts-head h3{margin:0}.rts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}.rts-field{display:flex;flex-direction:column;gap:5px;font-size:13px}.rt-security .rt-card{margin:0;padding:16px}.rt-security .rt-input{box-sizing:border-box;width:100%}.rts-tools{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}.rts-meta{font-size:12px;opacity:.8;overflow-wrap:anywhere}.rts-findings{display:flex;flex-direction:column;gap:10px}.rts-findings h4{margin:0 0 6px}.rts-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.rts-state{display:inline-block;border:1px solid currentColor;border-radius:12px;padding:2px 9px;font-size:12px}.rts-alert{border-left:3px solid #b7791f;padding:8px 12px;background:rgba(183,121,31,.07)}.rt-security button:disabled{opacity:.5;cursor:default}.rts-run{padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-primary,#ddd)}'),
+   h('div',{className:'rts-head'},h('div',null,h('h3',null,'安全审计'),h('p',{className:'rts-meta'},'确认项目范围 → 运行检查 → 验证发现 → 记录修复 → 复测')),h('div',{className:'rts-actions'},button(loading?'读取中…':'刷新',()=>load({resetPages:true}),loading),button('重新核对运行资源',()=>load({refreshRuntime:true,resetPages:true}),loading),button('漏洞库更新',()=>setUpdateGuide(value=>!value)),button(exporting?'正在导出…':'导出报告',download,!data||data.engagement!==engagement||!!error||loading||exporting))),
+   h('div',{className:'rts-alert'},'扫描命中先进入“待验证”，复测通过仅代表所选规则与本次覆盖。新增范围限制覆盖本页和对应审计工具；通用 Shell、浏览器和原版能力沿用原权限。'),
+   updateGuide&&h('section',{className:'rt-card','aria-label':'漏洞库更新说明'},h('h4',null,'在 Mac 上更新漏洞库'),h('p',null,'打开 Harness.command，选择选项 9。先检查版本；结束任务后选择更新并确认。下载及校验完成后会短暂重启 Harness，保留原库备份，不更换扫描器镜像。'),h('p',null,'若更新中断，请先选择检查；如提示维护未完成，再选择恢复。请勿重复提交更新。'),button('收起说明',()=>setUpdateGuide(false))),
+   h('p',{className:'rts-meta'},'任务由 VM 独立后台持有，关闭网页或结束会话后继续运行。回来后刷新查看原任务；VM 关机或后台服务停止仍会中断，不会自动重跑。'),
+   error&&h('div',{className:'rt-err',role:'alert'},error),
+   data&&unconfirmed&&h('p',{className:'rts-alert'},'当前资料未确认，以下为上次成功读取结果；写入和导出已暂停，请刷新核对。'),
+   running&&!data.runs.some(row=>row.id===running.id)&&h('div',{className:'rts-alert'},'当前运行任务：'+running.id,button('取消当前任务',()=>mutate({op:'securityCancel',engagement,id:running.id}),loading||unconfirmed)),
+   writeReceipt.current&&h('div',{className:'rts-alert'},'有一个操作尚未取得确认，刷新后可重试同一请求。',button('重试同一请求',()=>mutate(writeReceipt.current,{receipt:true}),loading||unconfirmed)),
+   !data&&!error&&h('p',null,'正在读取项目配置…'),
+   data&&draft&&h('section',{className:'rt-card','aria-label':'项目审计范围'},h('h4',null,'项目审计范围'),h('p',{className:'rts-meta'},'仅扫描 /home/purge/workspace 下的所选目录；ZAP 第一期仅接入 VM 内 127.0.0.1 的明确端口。'),
+    h('div',{className:'rts-grid'},field('仓库绝对路径','repoRoot'),field('VM 本地网址（ZAP 必填）','url','url'),field('授权到期时间（ISO 8601）','expiresAt')),
+    h('div',{className:'rts-tools'},...Object.keys(toolNames).map(tool=>h('label',{key:tool},h('input',{type:'checkbox',checked:draft.tools.includes(tool),disabled:busy,onChange:e=>change('tools',e.target.checked?[...draft.tools,tool]:draft.tools.filter(v=>v!==tool))}),' '+tool.toUpperCase()))),
+    h('label',null,h('input',{type:'checkbox',checked:!!draft.confirm,disabled:busy,onChange:e=>change('confirm',e.target.checked)}),' 我确认上述目录和本地网址可进行所选检查'),
+    h('div',{className:'rts-actions'},button('保存范围',save,!actionable||!draft.confirm||!draft.repoRoot||!draft.tools.length),draft.revision!==(data.profile?.revision||0)&&button('采用最新范围（丢弃本地草稿）',()=>{dirty.current=false;writeReceipt.current=null;setDraft({...data.profile,confirm:false})},!!running),h('span',{className:'rts-meta'},'当前版本 '+(data.profile?.revision||0)+(expired?' · 未配置或已过期':'')))),
+   data&&h('div',{className:'rts-grid'},...Object.keys(toolNames).map(tool=>h('section',{key:tool,className:'rt-card'},h('h4',null,toolNames[tool]),h('div',{className:'rts-meta'},data.tools[tool]?.ready?'已就绪 · '+data.tools[tool].version:(data.tools[tool]?.reason||'工具或离线数据库未就绪')),data.tools[tool]?.rules&&h('p',{className:'rts-meta'},'本地规则：'+data.tools[tool].rules.version+' · '+data.tools[tool].rules.count+' 条 · '+data.tools[tool].rules.languages.join(' / ')),data.tools[tool]?.checkedAt&&h('p',{className:'rts-meta'},'资源核对：'+data.tools[tool].checkedAt+(data.tools[tool].cached?' · 30秒内缓存':'')),data.tools[tool]?.database?.updatedAt&&h('p',{className:'rts-meta'},'漏洞库更新：'+data.tools[tool].database.updatedAt+' · '+data.tools[tool].database.ageDays+'天'),data.tools[tool]?.lastUpdate&&h('p',{className:'rts-meta'},'上次维护：'+label(maintenanceNames,data.tools[tool].lastUpdate.state,'未确认')+' · '+data.tools[tool].lastUpdate.checkedAt),data.tools[tool]?.warning&&h('p',{className:'rts-alert'},data.tools[tool].warning),h('p',{className:'rts-meta'},tool==='semgrep'?'本地启发式规则；需人工复核，不代表完整覆盖；不上传源码':tool==='trivy'?'离线数据库；检查依赖、配置和凭据痕迹':'被动检查与短时爬取；会向所选本地应用发送请求'),button('开始检查',()=>start(tool),!actionable||expired||!data.profile?.tools.includes(tool)||!data.tools[tool]?.ready||dirty.current)))),
+   data&&h('section',{className:'rt-card','aria-label':'审计任务'},h('h4',null,'审计任务 · '+(pageTitle('runs')??('最近 '+data.runs.length+(data.totalRuns===undefined?'':' / '+data.totalRuns)))),pageControls('runs'),!data.runs.length&&h('p',null,data.pagination?'当前筛选没有匹配任务':'尚未运行检查'),...data.runs.map(run=>h('div',{key:run.id,className:'rts-run'},h('div',null,run.tool.toUpperCase()+' · '+label(statusNames,run.state)+' · '+run.started_at),h('div',{className:'rts-meta'},run.id+' · '+(run.revision_ref||'工作区扫描')+(run.error_code?' · '+run.error_code:'')),run.details?.diagnostics&&h('div',{className:'rts-alert'},'扫描诊断 '+run.details.diagnostics.total+' 项'+(run.details.diagnostics.truncated?' · 显示前20项':''),...run.details.diagnostics.items.map((d,index)=>h('p',{key:index},d.code+' · '+d.path+(d.line?':'+d.line:'')))),run.state==='partial'&&!run.details?.diagnostics&&h('p',{className:'rts-meta'},'旧任务未保存具体覆盖诊断；保持覆盖不完整，请重新检查后核对。'),run.state==='running'&&button('取消任务',()=>mutate({op:'securityCancel',engagement,id:run.id}),loading||unconfirmed)))),
+   data&&h('section',{className:'rt-card','aria-label':'扫描结果对比'},
+    h('h4',null,'扫描结果对比'),h('p',{className:'rts-meta'},'选择最近30次任务中的两个完整任务。新任务保存观察快照，旧任务缺少快照时无法推断；对比不会修改发现状态。'),
+    h('div',{className:'rts-grid'},...comparisonFields),
+    h('div',{className:'rts-actions'},button(ownedComparison?.loading?'正在对比…':'对比所选任务',compareSelected,!actionable||!!ownedComparison?.loading||!baseId||!currentId||baseId===currentId),comparisonValue?.available&&button('下载对比报告',downloadComparison)),
+    ownedComparison?.error&&h('p',{className:'rt-err',role:'alert'},ownedComparison.error),
+    comparisonValue&&!comparisonValue.available&&h('p',{className:'rts-alert'},comparisonValue.reason),
+    comparisonValue?.available&&h('div',null,
+     h('p',{className:'rts-alert'},comparisonValue.notice),
+     h('div',{className:'rts-grid'},...Object.entries(comparisonLabels).map(([key,label])=>h('div',{key},label+'：'+comparisonValue.summary[key]))),
+     comparisonValue.truncated&&h('p',{className:'rts-alert'},'每类仅展示前100条，统计来自完整已保存快照；对比报告也包含此截断说明。'),
+     ...comparisonGroups)),
+   data&&h('section',{className:'rt-card','aria-label':'审计发现'},h('h4',null,'发现 · '+(pageTitle('findings')??('显示 '+data.findings.length+(data.totalFindings===undefined?'':' / '+data.totalFindings)))),pageControls('findings'),!data.findings.length&&h('p',null,data.pagination?'当前筛选没有匹配发现；请结合任务覆盖判断。':data.runs.length?'当前没有已收录发现，请结合任务完成状态判断覆盖。':'运行检查后在此验证发现。'),h('div',{className:'rts-findings'},...data.findings.map(f=>h('article',{key:f.id,className:'rt-card'},h('h4',null,f.title),h('span',{className:'rts-state'},label(statusNames,f.status)),h('p',{className:'rts-meta'},f.severity+' · '+f.tool+' / '+f.rule+' · '+f.location),h('p',null,f.evidence),f.subject&&h('p',{className:'rts-meta'},'依赖包：'+subjectText(f.subject)),f.tool==='trivy'&&f.identityVersion!==1&&h('p',{className:'rts-alert'},'旧记录未区分依赖包身份，历史可能已合并；请重新扫描并人工核对。'),f.note&&h('p',{className:'rts-meta'},'上次说明：'+f.note),h('label',{className:'rts-field'},'验证或修复说明（至少 5 字）',h('textarea',{className:'rt-input',value:notes[f.id]||'',disabled:busy,onChange:e=>{const note=e.target.value;setNotes(old=>({...old,[f.id]:note}))}})),h('div',{className:'rts-actions'},...(['unverified','reopened','false-positive','retest-passed','fixed'].includes(f.status)?[button('确认发现',()=>review(f,'confirmed'),!actionable||(notes[f.id]||'').trim().length<5)]:[]),...(['unverified','reopened','confirmed'].includes(f.status)?[button('标记误报',()=>review(f,'false-positive'),!actionable||(notes[f.id]||'').trim().length<5)]:[]),f.status==='confirmed'&&button('记录修复',()=>review(f,'fixed'),!actionable||(notes[f.id]||'').trim().length<5),f.status==='fixed'&&button('复测此发现',()=>start(f.tool,f),!actionable||expired||dirty.current||!data.profile?.tools.includes(f.tool)||!data.tools[f.tool]?.ready)))))),
+   data&&h('p',{className:'rts-meta'},'资料读取时间：'+data.observedAt));
+ };
+}
+
 
     var module = { exports: {} }
     var exports = module.exports
@@ -4296,6 +4463,11 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
     /* 保留导出。面板尺寸只写在自己的元素上，不再改官方 frame 的宽度。 */
     let dockWidthTag = null
     const setDockWidth = () => {}
+    let SecurityView
+    function SecurityTab(props) {
+      if (!SecurityView) SecurityView = createSecurityTab(React, api)
+      return h(SecurityView, props)
+    }
     const useUI = () => {
       const [st, setSt] = React.useState(() => Object.assign({}, ui))
       React.useEffect(() => {
@@ -8194,7 +8366,7 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       const stats = (snapshot && snapshot.stats) || {}
       const tabs = [
         ['assets', '资产测绘'], ['env', '环境适配'], ['agents', '智能体'], ['sessions', '会话隧道'],
-        ['findings', '漏洞战果'],
+        ['security', '安全审计'], ['findings', '漏洞战果'],
         ['chain', '攻击链'], ['scores', '得分目标'], ['report', '报告'],
       ]
       const full = isFullWindow()
@@ -8240,6 +8412,7 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
       } else if (st.tab === 'assets') body = h(AssetsTab, { engagement: eng, snapshot: snapshot, refreshKey: refreshKey, onRefresh: refreshAll, onData: () => loadSnapshot(eng) })
       else if (st.tab === 'testing') body = h(AssetsTab, { engagement: eng, snapshot: snapshot, refreshKey: refreshKey, onRefresh: refreshAll, onData: () => loadSnapshot(eng) })
       else if (st.tab === 'sessions') body = h(SessionTab, { engagement: eng, refreshKey: refreshKey })
+      else if (st.tab === 'security') body = h(SecurityTab, { key: eng, engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'findings') body = h(FindingsTab, { engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'chain') body = h(ChainTab, { engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'report') body = h(ReportTab, { engagement: eng, refreshKey: refreshKey })

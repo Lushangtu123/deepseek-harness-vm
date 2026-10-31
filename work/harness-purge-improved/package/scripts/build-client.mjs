@@ -24,7 +24,8 @@ const end = raw.lastIndexOf(endMark);
 if (end < 0) throw new Error("cannot find factory end in drill client");
 let body = raw.slice(start + startMark.length, end);
 const bindingHelpers = readFileSync(join(root, "lib", "redteam", "personal-binding-client.mjs"), "utf8").replace(/^export /gm, "");
-body = "\n" + bindingHelpers + "\n" + body;
+const securityHelpers = readFileSync(join(root, "lib", "redteam", "personal-security-client.mjs"), "utf8").replace(/^export /gm, "");
+body = "\n" + bindingHelpers + "\n" + securityHelpers + "\n" + body;
 
 // 去掉末尾 exports（return 已在 endMark 外）
 body = body

@@ -1,0 +1,179 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {createSecurityTab} from '../package/lib/redteam/personal-security-client.mjs'
+const flush=()=>new Promise(setImmediate);
+function host(api){
+ let cells=[],index=0,pending=[],dirty=false,tree,props={engagement:'a',refreshKey:0},unmounted=false,late=0;
+ const React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(v=>v!==false&&v!==null&&v!==undefined)}),useState(initial){const at=index++;if(!cells[at])cells[at]={value:typeof initial==='function'?initial():initial};return[cells[at].value,value=>{if(unmounted){late++;return}cells[at].value=typeof value==='function'?value(cells[at].value):value;dirty=true}]},useRef(initial){const at=index++;return cells[at]||(cells[at]={current:initial})},useEffect(effect,deps){const at=index++,previous=cells[at];if(!previous||deps.some((value,i)=>value!==previous.deps[i]))pending.push(()=>{previous?.cleanup?.();cells[at]={deps,cleanup:effect()}})}};
+ const Component=createSecurityTab(React,api);
+ const render=(next=props)=>{props=next;for(let n=0;n<10;n++){dirty=false;index=0;tree=Component(props);const effects=pending;pending=[];effects.forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled hooks')};
+ return{render,unmount(){unmounted=true;cells.forEach(row=>row.cleanup?.())},get late(){return late}};
+}
+const text=n=>typeof n==='string'||typeof n==='number'?String(n):(n?.children||[]).map(text).join(' ');
+const nodes=n=>n&&typeof n==='object'?[n,...(n.children||[]).flatMap(nodes)]:[];
+const btn=(tree,label)=>{const result=nodes(tree).find(n=>n.type==='button'&&text(n)===label);assert.ok(result,'Missing '+label);return result};
+const state=(engagement='a')=>({ok:true,engagement,profile:{revision:1,repoRoot:'/home/purge/workspace/test',url:null,expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy']},tools:{semgrep:{ready:true,version:'test'},trivy:{ready:true,version:'test'},zap:{ready:false}},runs:[],findings:[],observedAt:new Date().toISOString()});
+const pagedState=request=>{
+ const r=request.pages?.runs||{},f=request.pages?.findings||{},filters={tool:f.tool||'',status:f.status||'',severity:f.severity||'',search:f.search||''},filtered=Object.values(filters).some(Boolean),last=!!f.cursor;
+ const findings=filtered?[]:(last?[1]:Array.from({length:50},(_,i)=>51-i)).map(id=>({id,revision:1,tool:'semgrep',title:'Finding '+id,rule:'fixture.rule',location:'fixture-'+id+'.js:1',evidence:'synthetic',note:'',severity:'medium',status:'unverified'}));
+ return{...state(request.engagement),totalRuns:0,totalFindings:51,runs:[],findings,activeRun:null,comparisonRuns:[],pagination:{runs:{cursor:r.cursor??null,limit:r.limit??10,total:0,hasMore:false,nextCursor:null,filters:{tool:r.tool||'',state:r.state||''}},findings:{cursor:f.cursor??null,limit:f.limit??50,total:filtered?0:51,hasMore:!filtered&&!last,nextCursor:!filtered&&!last?'find-next':null,filters}}};
+};
+test('UI paginates findings independently, goes back, and retains unsaved scope while changing pages',async()=>{
+ const calls=[],h=host(async request=>{calls.push(request);return pagedState(request)});try{
+  h.render();await flush();let tree=h.render();assert.equal(btn(tree,'发现上一页').props.disabled,true);assert.equal(btn(tree,'发现下一页').props.disabled,false);
+  nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/edited'}});tree=h.render();
+  await btn(tree,'发现下一页').props.onClick();tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,'find-next');assert.equal(calls.at(-1).pages.runs.cursor,null);assert.match(text(tree),/Finding 1(?:\s|$)/);assert.doesNotMatch(text(tree),/Finding 51/);assert.match(text(tree),/第2页/);assert.ok(nodes(tree).some(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/edited'));
+  await btn(tree,'发现上一页').props.onClick();tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,null);assert.match(text(tree),/Finding 51/);assert.equal(btn(tree,'发现上一页').props.disabled,true);
+ }finally{h.unmount()}
+});
+test('Explicit and parent refresh start a new page window while keeping filters and unsaved scope',async()=>{
+ const calls=[],h=host(async request=>{calls.push(request);return pagedState(request)});try{
+  h.render();await flush();let tree=h.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/edited'}});tree=h.render();await btn(tree,'发现下一页').props.onClick();tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,'find-next');
+  await btn(tree,'刷新').props.onClick();tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,null);assert.equal(calls.at(-1).pages.runs.cursor,null);assert.equal(btn(tree,'发现上一页').props.disabled,true);assert.ok(nodes(tree).some(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/edited'));assert.match(text(tree),/Finding 51/);
+  await btn(tree,'发现下一页').props.onClick();h.render({engagement:'a',refreshKey:1});await flush();tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,null);assert.equal(btn(tree,'发现上一页').props.disabled,true);
+ }finally{h.unmount()}
+});
+test('Failed or mismatched page reads retain the last accepted page and disable writes',async()=>{
+ for(const mode of ['throw','cursor','count']){
+  const h=host(async request=>{const value=pagedState(request);if(request.pages?.findings.cursor){if(mode==='throw')throw Error('page unavailable');if(mode==='cursor')value.pagination.findings.cursor='foreign';if(mode==='count')value.pagination.findings.total=0}return value});try{
+   h.render();await flush();let tree=h.render();await btn(tree,'发现下一页').props.onClick();tree=h.render();assert.match(text(tree),/page unavailable|资料无效/);assert.match(text(tree),/Finding 51/);assert.equal(btn(tree,'导出报告').props.disabled,true);assert.equal(btn(tree,'发现上一页').props.disabled,true);assert.equal(btn(tree,'发现下一页').props.disabled,true);
+  }finally{h.unmount()}
+ }
+});
+test('Changing a finding filter resets its cursor and literal search applies only on submit',async()=>{
+ const calls=[],h=host(async request=>{calls.push(request);return pagedState(request)});try{
+  h.render();await flush();let tree=h.render();await btn(tree,'发现下一页').props.onClick();tree=h.render();
+  await nodes(tree).find(n=>n.type==='select'&&n.props['aria-label']==='发现工具').props.onChange({target:{value:'trivy'}});tree=h.render();assert.equal(calls.at(-1).pages.findings.cursor,null);assert.equal(calls.at(-1).pages.findings.tool,'trivy');assert.equal(btn(tree,'发现上一页').props.disabled,true);assert.match(text(tree),/匹配 0/);
+  const count=calls.length;nodes(tree).find(n=>n.type==='input'&&n.props['aria-label']==='发现搜索').props.onChange({target:{value:'%_'}});tree=h.render();assert.equal(calls.length,count);await btn(tree,'搜索发现').props.onClick();assert.equal(calls.at(-1).pages.findings.search,'%_');
+ }finally{h.unmount()}
+});
+test('Changing projects resets UI cursors and the global running task stays visible on filtered history',async()=>{
+ const calls=[],h=host(async request=>{calls.push(request);const value=pagedState(request);value.activeRun={id:'active-run',tool:'semgrep',state:'running',complete:0,started_at:'2026-10-30T10:00:00.000Z',details:{}};return value});try{
+  h.render();await flush();let tree=h.render();assert.match(text(tree),/active-run/);assert.equal(btn(tree,'取消当前任务').props.disabled,false);await btn(tree,'发现下一页').props.onClick();tree=h.render();assert.match(text(tree),/active-run/);
+  h.render({engagement:'b',refreshKey:0});await flush();tree=h.render();assert.equal(calls.at(-1).engagement,'b');assert.equal(calls.at(-1).pages.findings.cursor,null);assert.equal(btn(tree,'发现上一页').props.disabled,true);
+ }finally{h.unmount()}
+});
+test('Diagnostic-shaped uncertain mutation outcomes retain the exact request ID through refresh and retry',async()=>{
+ for(const [code,stage] of [['RPC_TIMEOUT','wait'],['RPC_RESPONSE_ENCODING','encode'],['RPC_DISPATCH_FAILED','dispatch'],['UNKNOWN_CODE','dispatch']]){
+  const starts=[],h=host(async request=>{if(request.op==='securityStart'){starts.push(request);return starts.length===1?{ok:false,error:'结果未确认',diagnostic:{requestId:'5e24e176-4b65-4023-a5ef-c4c7842e25f3',operation:'securityStart',stage,code,elapsedMs:10}}:{ok:true,run:{id:'retained-run',state:'running'}}}return state(request.engagement)});try{
+   h.render();await flush();let tree=h.render();await btn(tree,'开始检查').props.onClick();tree=h.render();assert.ok(btn(tree,'重试同一请求'));await btn(tree,'刷新').props.onClick();tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,true);await btn(tree,'重试同一请求').props.onClick();tree=h.render();assert.equal(starts.length,2);assert.equal(starts[1].requestId,starts[0].requestId);assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='重试同一请求'));
+  }finally{h.unmount()}
+ }
+});
+test('A validated business rejection clears the saved receipt and allows a corrected fresh request',async()=>{
+ const starts=[],h=host(async request=>{if(request.op==='securityStart'){starts.push(request);return starts.length===1?{ok:false,error:'范围已变化',diagnostic:{requestId:'5e24e176-4b65-4023-a5ef-c4c7842e25f3',operation:'securityStart',stage:'dispatch',code:'RPC_REJECTED',elapsedMs:2}}:{ok:true}}return state()});try{
+  h.render();await flush();let tree=h.render();await btn(tree,'开始检查').props.onClick();tree=h.render();assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='重试同一请求'));await btn(tree,'刷新').props.onClick();tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,false);await btn(tree,'开始检查').props.onClick();assert.notEqual(starts[0].requestId,starts[1].requestId);
+ }finally{h.unmount()}
+});
+test('Coverage diagnostics display source-free type and file, reject malformed nested fields and retain unknown legacy reasons',async()=>{
+ const run={id:'diagnostic-run',tool:'semgrep',state:'partial',complete:0,started_at:'2026-10-29T12:00:00Z',details:{diagnostics:{total:1,items:[{code:'PartialParsing',path:'a.js',line:7}],truncated:false}}};
+ for(const diagnostic of [run.details.diagnostics,{total:1,items:[{code:{bad:true},path:'a.js',line:7}],truncated:false},null]){
+  const h=host(async()=>({...state(),runs:[{...run,details:diagnostic?{diagnostics:diagnostic}:{}}]}));try{h.render();await flush();const tree=h.render();if(diagnostic?.items[0].code?.bad){assert.match(text(tree),/资料无效/);assert.equal(btn(tree,'导出报告').props.disabled,true)}else if(diagnostic){assert.match(text(tree),/PartialParsing · a.js:7/);assert.match(text(tree),/扫描诊断 1 项/)}else assert.match(text(tree),/旧任务未保存具体覆盖诊断/)}finally{h.unmount()}
+ }
+});
+test('An unavailable or foreign project response never becomes an empty successful audit',async()=>{
+ for(const response of [{ok:false,error:'unavailable'},state('foreign')]){const h=host(async()=>response);h.render();await flush();const tree=h.render();assert.match(text(tree),/unavailable|资料无效/);assert.doesNotMatch(text(tree),/当前没有已收录发现/);assert.equal(btn(tree,'导出报告').props.disabled,true);h.unmount()}
+});
+test('Refreshing preserves unsaved scope and stale responses cannot update an unmounted project',async()=>{
+ const h=host(async()=>state());h.render();await flush();let tree=h.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/changed'}});h.render({engagement:'a',refreshKey:1});await flush();tree=h.render();assert.ok(nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/changed'));assert.equal(btn(tree,'开始检查').props.disabled,true);h.unmount();
+ let done;const old=host(()=>new Promise(resolve=>{done=resolve}));old.render();old.unmount();done(state());await flush();assert.equal(old.late,0);
+});
+test('Uncertain launch has no automatic replay, blocks new work and retries the exact request ID',async()=>{
+ const calls=[];const h=host(async request=>{calls.push(request);if(request.op==='securityStart')throw Error('offline');return state()});h.render();await flush();let tree=h.render();await btn(tree,'开始检查').props.onClick();tree=h.render();assert.equal(calls.filter(r=>r.op==='securityStart').length,1);assert.equal(btn(tree,'开始检查').props.disabled,true);const first=calls.find(r=>r.op==='securityStart');await btn(tree,'重试同一请求').props.onClick();assert.deepEqual(calls.filter(r=>r.op==='securityStart'),[first,first]);h.unmount();
+});
+test('Explicit revision rejection clears an uncertain receipt and allows a fresh action',async()=>{
+ const h=host(async request=>request.op==='securityStart'?{ok:false,error:'范围已变化，请刷新'}:state());h.render();await flush();let tree=h.render();await btn(tree,'开始检查').props.onClick();tree=h.render();assert.match(text(tree),/范围已变化/);assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='重试同一请求'));await btn(tree,'刷新').props.onClick();tree=h.render();assert.equal(btn(tree,'开始检查').props.disabled,false);h.unmount();
+});
+test('Explicit runtime recheck preserves the scope draft and shows resource errors and DB age',async()=>{
+ const calls=[];const h=host(async request=>{calls.push(request);const value=state();value.tools.trivy={ready:false,version:'test',reason:'漏洞数据库摘要不匹配',warning:'漏洞库已超过7天',database:{state:'stale',updatedAt:'2026-10-01T00:00:00Z',ageDays:28},checkedAt:'2026-10-29T22:00:00Z'};return value});h.render();await flush();let tree=h.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/draft'}});tree=h.render();await btn(tree,'重新核对运行资源').props.onClick();tree=h.render();assert.equal(calls.at(-1).refreshRuntime,true);assert.match(text(tree),/漏洞数据库摘要不匹配/);assert.match(text(tree),/2026-10-01/);assert.match(text(tree),/超过7天/);assert.ok(nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/draft'));h.unmount();
+});
+test('Database update guide names the Mac launcher and displays the last controlled update result',async()=>{
+ const h=host(async()=>{const value=state();value.tools.trivy.lastUpdate={state:'current',checkedAt:'2026-10-29T22:00:00Z'};return value});h.render();await flush();let tree=h.render();btn(tree,'漏洞库更新').props.onClick();tree=h.render();assert.match(text(tree),/Mac/);assert.match(text(tree),/选项 9/);assert.match(text(tree),/2026-10-29T22:00:00Z/);h.unmount();
+});
+test('The rule card shows the verified local policy version and scope without promising completeness',async()=>{
+ const h=host(async()=>{const value=state();value.tools.semgrep.rules={version:'local-reviewed-2',count:16,languages:['javascript','python','typescript']};return value});h.render();await flush();const tree=h.render();assert.match(text(tree),/local-reviewed-2/);assert.match(text(tree),/16 条/);assert.match(text(tree),/python/);assert.match(text(tree),/人工复核/);h.unmount();
+});
+const comparableState=()=>({...state(),runs:[{id:'new-run-0002',tool:'semgrep',state:'completed',complete:1,started_at:'2026-10-29T12:00:00Z',details:{comparisonSnapshot:{available:true}}},{id:'old-run-0001',tool:'semgrep',state:'completed',complete:1,started_at:'2026-10-29T11:00:00Z',details:{comparisonSnapshot:{available:true}}}]});
+const comparisonResult=(request)=>({ok:true,engagement:request.engagement,baseRunId:request.baseRunId,currentRunId:request.currentRunId,available:true,summary:{added:1,persisting:2,notSeen:3,uncovered:4},items:{added:[],persisting:[],notSeen:[],uncovered:[]},notice:'未再次命中不等于已修复',truncated:false,markdown:'# comparison'});
+
+async function downloads(check){
+ const originalDocument=globalThis.document,originalCreate=URL.createObjectURL,originalRevoke=URL.revokeObjectURL,files=[],blobs=[];
+ globalThis.document={createElement:()=>({click(){files.push({name:this.download,href:this.href})}})};
+ URL.createObjectURL=blob=>{blobs.push(blob);return'blob:security-download-fixture'};URL.revokeObjectURL=()=>{};
+ try{await check({files,blobs})}finally{if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke}
+}
+test('Audit export refuses foreign project and malformed success payloads before creating a download',async()=>downloads(async({files,blobs})=>{
+ for(const report of [{ok:true,engagement:'foreign',markdown:'# wrong project'},{ok:1,engagement:'a',markdown:'# invalid flag'},{ok:true,engagement:'a',markdown:123}]){
+  const h=host(async request=>request.op==='securityReport'?report:state());try{h.render();await flush();let tree=h.render();await btn(tree,'导出报告').props.onClick();tree=h.render();assert.equal(files.length,0);assert.equal(blobs.length,0);assert.match(text(tree),/报告未确认/)}finally{h.unmount()}
+ }
+}));
+test('Refreshing invalidates the pending audit download and the previous rendered export callback',async()=>downloads(async({files})=>{
+ let finish,calls=0;const h=host(async request=>{if(request.op==='securityReport'){calls++;return new Promise(resolve=>{finish=()=>resolve({ok:true,engagement:'a',markdown:'# old read'})})}return state()});
+ try{h.render();await flush();let tree=h.render();const oldExport=btn(tree,'导出报告').props.onClick,pending=oldExport();await btn(tree,'刷新').props.onClick();finish();await pending;assert.equal(files.length,0);await oldExport();assert.equal(calls,1,'Old callback must not send another request');tree=h.render();const fresh=btn(tree,'导出报告').props.onClick();finish();await fresh;assert.equal(files.length,1);assert.equal(files[0].name,'security-audit-a.md');
+ }finally{h.unmount()}
+}));
+test('Audit export locks repeated same-render clicks and releases only its own pending request',async()=>downloads(async({files,blobs})=>{
+ let finish,calls=0;const h=host(async request=>{if(request.op==='securityReport'){calls++;return new Promise(resolve=>{finish=()=>resolve({ok:true,engagement:'a',markdown:'# verified report'})})}return state()});
+ try{h.render();await flush();let tree=h.render();const click=btn(tree,'导出报告').props.onClick,pending=click(),duplicate=click();assert.equal(calls,1);tree=h.render();assert.equal(btn(tree,'正在导出…').props.disabled,true);finish();await Promise.all([pending,duplicate]);tree=h.render();assert.equal(btn(tree,'导出报告').props.disabled,false);assert.equal(files.length,1);assert.equal(await blobs[0].text(),'# verified report');assert.equal(blobs[0].type,'text/markdown;charset=utf-8')
+ }finally{h.unmount()}
+}));
+test('A late old export failure cannot clear a newer export lock or replace current page errors',async()=>downloads(async({files})=>{
+ const pending=[];let calls=0;const h=host(request=>request.op==='securityReport'?(calls++,new Promise((resolve,reject)=>pending.push({resolve,reject}))):Promise.resolve(state()));
+ try{h.render();await flush();let tree=h.render();const first=btn(tree,'导出报告').props.onClick();h.render({engagement:'a',refreshKey:1});await flush();tree=h.render();const second=btn(tree,'导出报告').props.onClick();pending[0].reject(Error('OLD_PRIVATE_ERROR'));await first;tree=h.render();assert.doesNotMatch(text(tree),/OLD_PRIVATE_ERROR/);assert.equal(btn(tree,'正在导出…').props.disabled,true);pending[1].resolve({ok:true,engagement:'a',markdown:'# new report'});await second;assert.equal(files.length,1);assert.equal(calls,2)
+ }finally{h.unmount()}
+}));
+test('The comparison UI sends a read-only exact pair and keeps unknown history distinct from empty changes',async()=>{
+ const calls=[];const h=host(async request=>{calls.push(request);return request.op==='securityCompare'?{...comparisonResult(request),available:false,reason:'旧任务没有完整扫描快照'}:comparableState()});h.render();await flush();let tree=h.render();await btn(tree,'对比所选任务').props.onClick();tree=h.render();assert.deepEqual(calls.at(-1),{op:'securityCompare',engagement:'a',baseRunId:'old-run-0001',currentRunId:'new-run-0002'});assert.match(text(tree),/旧任务没有完整扫描快照/);assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='下载对比报告'));h.unmount();
+});
+test('A stale comparison cannot appear in a new project or after its selected pair changes',async()=>{
+ let finish;const h=host(async request=>request.op==='securityCompare'?new Promise(resolve=>{finish=()=>resolve(comparisonResult(request))}):{...comparableState(),engagement:request.engagement});h.render();await flush();let tree=h.render();const pending=btn(tree,'对比所选任务').props.onClick();h.render({engagement:'b',refreshKey:0});finish();await pending;await flush();tree=h.render();assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='下载对比报告'));h.unmount();
+});
+test('Changing the exact pair invalidates an in-flight comparison and malformed counters remain unconfirmed',async()=>{
+ let finish;const h=host(async request=>request.op==='securityCompare'?new Promise(resolve=>{finish=()=>resolve(comparisonResult(request))}):comparableState());h.render();await flush();let tree=h.render();const pending=btn(tree,'对比所选任务').props.onClick();tree=h.render();nodes(tree).find(n=>n.type==='select'&&n.props.value==='old-run-0001').props.onChange({target:{value:'new-run-0002'}});finish();await pending;tree=h.render();assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='下载对比报告'));h.unmount();
+ const bad=host(async request=>request.op==='securityCompare'?{...comparisonResult(request),summary:{added:-1,persisting:0,notSeen:0,uncovered:0}}:comparableState());bad.render();await flush();tree=bad.render();await btn(tree,'对比所选任务').props.onClick();tree=bad.render();assert.match(text(tree),/对比结果未确认/);assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='下载对比报告'));bad.unmount();
+});
+
+const statusFinding=()=>({id:1,revision:1,tool:'semgrep',rule:'test.rule',title:'Last verified fixture',severity:'high',location:'app.py:1',evidence:'Synthetic evidence',status:'unverified',note:''});
+test('Malformed nested audit records are rejected before rendering or offering record actions',async()=>{
+ const cases=[
+  v=>{v.runs=[null]},v=>{v.runs=[{...comparableState().runs[0],tool:{}}]},v=>{v.runs=[{...comparableState().runs[0],id:123}]},v=>{v.runs=[{...comparableState().runs[0],complete:'1'}]},
+  v=>{v.findings=[null]},v=>{v.findings=[{...statusFinding(),title:{}}]},v=>{v.findings=[{...statusFinding(),revision:0}]},v=>{v.findings=[{...statusFinding(),note:[]}]},
+  v=>{v.profile.tools='semgrep'},v=>{v.profile.revision='1'},v=>{v.profile.expiresAt='not-a-date'},v=>{v.profile.tools=['semgrep','semgrep']},
+  v=>{v.tools=[]},v=>{v.tools.semgrep.ready='yes'},v=>{v.tools.semgrep.rules={version:'v2',count:16,languages:'python'}},v=>{v.tools.semgrep.rules={version:{},count:16,languages:['python']}},v=>{v.tools.trivy.database={updatedAt:'2026-10-29T00:00:00Z',ageDays:{}}},v=>{v.tools.trivy.lastUpdate={state:{},checkedAt:'2026-10-29T00:00:00Z'}},v=>{v.observedAt={}}
+ ];
+ for(const change of cases){const value=state();change(value);const h=host(async()=>value);try{h.render();await flush();const tree=h.render();assert.match(text(tree),/资料无效|未确认/);assert.equal(btn(tree,'导出报告').props.disabled,true);assert.ok(!nodes(tree).some(n=>n.type==='button'&&['保存范围','开始检查','确认发现'].includes(text(n))&&!n.props.disabled))}finally{h.unmount()}}
+});
+test('Duplicate records, impossible totals and oversized audit pages remain unconfirmed',async()=>{
+ const cases=[v=>{v.runs=Array(31).fill(comparableState().runs[0])},v=>{v.runs=[comparableState().runs[0],comparableState().runs[0]]},v=>{v.findings=[statusFinding(),statusFinding()]},v=>{v.totalFindings=-1},v=>{v.totalRuns='0'},v=>{v.totalFindings=1},v=>{v.runs=comparableState().runs;v.totalRuns=1}];
+ for(const change of cases){const value=state();change(value);const h=host(async()=>value);try{h.render();await flush();const tree=h.render();assert.match(text(tree),/资料无效|未确认/);assert.equal(btn(tree,'导出报告').props.disabled,true)}finally{h.unmount()}}
+});
+test('Invalid refresh preserves the last verified records and scope draft, pauses writes and resumes after a valid read',async()=>{
+ let invalid=false;const calls=[];const h=host(async request=>{calls.push(request);const v=state();v.findings=[statusFinding()];if(invalid)v.runs=[null];return v});
+ try{h.render();await flush();let tree=h.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/unsaved'}});tree=h.render();invalid=true;await btn(tree,'刷新').props.onClick();tree=h.render();assert.match(text(tree),/上次成功读取/);assert.match(text(tree),/Last verified fixture/);assert.ok(nodes(tree).some(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/unsaved'));assert.equal(btn(tree,'导出报告').props.disabled,true);assert.equal(btn(tree,'确认发现').props.disabled,true);assert.equal(calls.filter(v=>v.op!=='securityStatus').length,0);invalid=false;await btn(tree,'刷新').props.onClick();tree=h.render();assert.doesNotMatch(text(tree),/当前资料未确认/);assert.equal(btn(tree,'导出报告').props.disabled,false)}finally{h.unmount()}
+});
+test('Legacy optional totals and unknown string states remain displayable with typed runtime metadata',async()=>{
+ const value=state();value.profile=null;value.findings=[{...statusFinding(),status:'future-status',severity:'future-severity'}];value.runs=[{...comparableState().runs[0],state:'future-state',details:{}}];value.tools.semgrep.rules={version:'local-reviewed-2',count:16,languages:['python','javascript']};value.tools.trivy={ready:false,version:null,reason:'维护未完成',database:{state:'unknown',updatedAt:null,nextUpdate:null,ageDays:null},checkedAt:'2026-10-29T00:00:00Z',cached:false};const h=host(async()=>value);
+ try{h.render();await flush();const tree=h.render();assert.doesNotMatch(text(tree),/资料无效|当前资料未确认/);assert.match(text(tree),/future-status/);assert.match(text(tree),/future-state/);assert.match(text(tree),/维护未完成/);assert.equal(btn(tree,'导出报告').props.disabled,false)}finally{h.unmount()}
+});
+test('Array-shaped tool identifiers never pass string-key coercion into rendered or actionable records',async()=>{
+ for(const change of [v=>{v.runs=[{...comparableState().runs[0],tool:['semgrep']}]},v=>{v.profile.tools=[['semgrep']]},v=>{v.findings=[{...statusFinding(),tool:['semgrep']}] }]){
+  const value=state();change(value);const h=host(async()=>value);try{h.render();await flush();const tree=h.render();assert.match(text(tree),/资料无效|未确认/);assert.equal(btn(tree,'导出报告').props.disabled,true)}finally{h.unmount()}
+ }
+});
+test('Prototype-named unknown statuses stay literal text rather than inherited React children',async()=>{
+ for(const status of ['__proto__','constructor','toString']){
+  const value=state();value.findings=[{...statusFinding(),status}];value.runs=[{...comparableState().runs[0],state:status}];value.tools.trivy.lastUpdate={state:status,checkedAt:'2026-10-29T00:00:00Z'};const h=host(async()=>value);
+  try{h.render();await flush();const tree=h.render(),badge=nodes(tree).find(n=>n.type==='span'&&n.props.className==='rts-state');assert.equal(badge.children[0],status);assert.match(text(tree),/上次维护：未确认/);assert.doesNotMatch(text(tree),/\[object Object\]|native code/)}finally{h.unmount()}
+ }
+});
+const packageSubjectFixture=()=>({kind:'package',name:'fixture-alpha',version:'1.2',path:'nested/package',purl:'pkg:pypi/fixture-alpha@1.2',key:'a'.repeat(64),family:'b'.repeat(64)});
+test('Package identity appears beside the CVE and legacy Trivy rows disclose missing package history',async()=>{
+ const value=state();value.findings=[{...statusFinding(),tool:'trivy',rule:'CVE-2026-0000',subject:packageSubjectFixture(),identityVersion:1},{...statusFinding(),id:2,tool:'trivy',subject:null,identityVersion:0}];const h=host(async()=>value);
+ try{h.render();await flush();const tree=h.render();assert.match(text(tree),/依赖包：fixture-alpha@1.2/);assert.match(text(tree),/nested\/package/);assert.match(text(tree),/旧记录未区分依赖包身份/);assert.match(text(tree),/CVE-2026-0000/)}finally{h.unmount()}
+});
+test('Malformed package subjects never reach the audit page or comparison display',async()=>{
+ for(const subject of ['raw-json',{...packageSubjectFixture(),name:{}},{...packageSubjectFixture(),key:'bad'}]){
+  const value=state();value.findings=[{...statusFinding(),tool:'trivy',subject,identityVersion:1}];const h=host(async()=>value);try{h.render();await flush();const tree=h.render();assert.match(text(tree),/资料无效/);assert.equal(btn(tree,'导出报告').props.disabled,true)}finally{h.unmount()}
+ }
+ const h=host(async request=>request.op==='securityCompare'?{...comparisonResult(request),items:{added:[{rule:'CVE-2026-0000',title:'test',severity:'high',location:'requirements.txt',subject:{...packageSubjectFixture(),path:{}}}],persisting:[],notSeen:[],uncovered:[]}}:comparableState());try{h.render();await flush();let tree=h.render();await btn(tree,'对比所选任务').props.onClick();tree=h.render();assert.match(text(tree),/对比结果未确认/)}finally{h.unmount()}
+});

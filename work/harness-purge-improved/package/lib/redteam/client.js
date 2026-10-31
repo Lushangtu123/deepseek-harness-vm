@@ -627,6 +627,11 @@ window.__ModuleLoader__.load({
     /* 保留导出。面板尺寸只写在自己的元素上，不再改官方 frame 的宽度。 */
     let dockWidthTag = null
     const setDockWidth = () => {}
+    let SecurityView
+    function SecurityTab(props) {
+      if (!SecurityView) SecurityView = createSecurityTab(React, api)
+      return h(SecurityView, props)
+    }
     const useUI = () => {
       const [st, setSt] = React.useState(() => Object.assign({}, ui))
       React.useEffect(() => {
@@ -4525,7 +4530,7 @@ window.__ModuleLoader__.load({
       const stats = (snapshot && snapshot.stats) || {}
       const tabs = [
         ['assets', '资产测绘'], ['env', '环境适配'], ['agents', '智能体'], ['sessions', '会话隧道'],
-        ['findings', '漏洞战果'],
+        ['security', '安全审计'], ['findings', '漏洞战果'],
         ['chain', '攻击链'], ['scores', '得分目标'], ['report', '报告'],
       ]
       const full = isFullWindow()
@@ -4571,6 +4576,7 @@ window.__ModuleLoader__.load({
       } else if (st.tab === 'assets') body = h(AssetsTab, { engagement: eng, snapshot: snapshot, refreshKey: refreshKey, onRefresh: refreshAll, onData: () => loadSnapshot(eng) })
       else if (st.tab === 'testing') body = h(AssetsTab, { engagement: eng, snapshot: snapshot, refreshKey: refreshKey, onRefresh: refreshAll, onData: () => loadSnapshot(eng) })
       else if (st.tab === 'sessions') body = h(SessionTab, { engagement: eng, refreshKey: refreshKey })
+      else if (st.tab === 'security') body = h(SecurityTab, { key: eng, engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'findings') body = h(FindingsTab, { engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'chain') body = h(ChainTab, { engagement: eng, refreshKey: refreshKey })
       else if (st.tab === 'report') body = h(ReportTab, { engagement: eng, refreshKey: refreshKey })

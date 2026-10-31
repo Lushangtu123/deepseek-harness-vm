@@ -5,8 +5,8 @@ import {RECOVERY_HTML} from './web-health.mjs';
 const page=(id,nextCursor=null,truncated=false)=>({readOnly:true,currentRecovery:'ready-v30',observedAt:'2026-10-29T05:30:00Z',snapshotState:'observed',snapshots:[],images:[{id,logicalBytes:4,allocatedBytes:4}],storage:{freeBytes:10},truncated,nextCursor,archiveScan:{entriesScanned:1,entriesRemaining:nextCursor?1:0,visitedDirectories:3,skippedMetadataDirectories:1,reasons:truncated?['depth-limit']:[]}});
 function fixture(responses){
  const element=()=>({textContent:'',hidden:false,disabled:false,children:[],events:{},appendChild(node){this.children.push(node)},replaceChildren(){this.children=[]},addEventListener(name,fn){this.events[name]=fn}});
- const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more','more-snapshots'].map(id=>[id,element()]));
- const urls=[];const context={document:{getElementById:id=>nodes[id],createElement:element},AbortController,URLSearchParams,setTimeout:()=>0,clearTimeout(){},fetch:async url=>{urls.push(url);const result=responses.shift();if(result instanceof Error)throw result;return{ok:true,json:async()=>result}}};
+ const nodes=Object.fromEntries(['free','snap-count','history-count','image-count','status','error','snapshots','history','images','refresh','more','more-snapshots'].map(id=>[id,element()]));
+ const urls=[];const context={document:{getElementById:id=>nodes[id],createElement:element},AbortController,URLSearchParams,setTimeout:()=>0,clearTimeout(){},fetch:async url=>{urls.push(url);const result=responses.shift();if(result instanceof Error)throw result;if(result?.httpResponse)return result.httpResponse;return{ok:true,json:async()=>result}}};
  vm.runInNewContext(RECOVERY_HTML.match(/<script>([\s\S]*)<\/script>/)[1],context);
  return{nodes,urls,async settle(){for(let i=0;i<12;i++)await Promise.resolve()}};
 }
@@ -91,4 +91,31 @@ test('Failed refresh keeps the previous partial lists and their retry positions'
  const f=fixture([{...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a'},Error('synthetic refresh failure'),page('b.qcow2')]);await f.settle();
  await f.nodes.refresh.events.click();await f.settle();assert.equal(f.nodes.images.children.length,1);assert.equal(f.nodes.more.hidden,false);assert.doesNotMatch(f.nodes.status.textContent,/已读取完/);
  await f.nodes.more.events.click();await f.settle();assert.match(f.urls[2],/after=archive-a/);assert.equal(f.nodes.images.children.length,2);assert.match(f.nodes.error.textContent,/快照读取失败/);
+});
+
+test('Malformed refresh preserves previous rows before reporting unconfirmed data',async()=>{
+ const f=fixture([page('a.qcow2','archive-a'),{...page('b.qcow2'),images:null}]);await f.settle();await f.nodes.refresh.events.click();await f.settle();
+ assert.equal(f.nodes['image-count'].textContent,'1');assert.equal(f.nodes.images.children.length,1);assert.equal(f.nodes.more.hidden,false);assert.match(f.nodes.error.textContent,/清单结构未确认/);
+});
+test('Continuations request only their own list and accept isolated responses',async()=>{
+ const first={...page('a.qcow2','archive-a'),nextSnapshotCursor:'snap-a'};
+ const f=fixture([first,{readOnly:true,currentRecovery:first.currentRecovery,observedAt:first.observedAt,images:[],nextCursor:null,archiveScan:{reasons:[]}}, {readOnly:true,currentRecovery:first.currentRecovery,observedAt:first.observedAt,snapshotState:'observed',snapshots:[],nextSnapshotCursor:null}]);await f.settle();
+ await f.nodes.more.events.click();await f.settle();assert.match(f.urls[1],/part=images/);assert.equal(f.nodes.error.textContent,'');
+ await f.nodes['more-snapshots'].events.click();await f.settle();assert.match(f.urls[2],/part=snapshots/);assert.equal(f.nodes.error.textContent,'');
+});
+test('Present and confirmed absent snapshot records render in different groups',async()=>{
+ const f=fixture([{...page('a.qcow2'),snapshots:[{name:'present',present:true},{name:'historical',present:false}]}]);await f.settle();
+ assert.equal(f.nodes.snapshots.children.length,1);assert.equal(f.nodes.history.children.length,1);assert.equal(f.nodes['history-count'].textContent,'1');assert.equal(f.nodes['snap-count'].textContent,'1');
+});
+test('Invalid scan metadata cannot partially commit a refresh or consume its previous cursor',async()=>{
+ const f=fixture([page('a.qcow2','archive-a'),{...page('changed.qcow2'),archiveScan:{reasons:[null]}},page('b.qcow2')]);await f.settle();await f.nodes.refresh.events.click();await f.settle();
+ assert.match(f.nodes.error.textContent,/清单结构未确认/);await f.nodes.more.events.click();await f.settle();assert.match(f.urls[2],/after=archive-a/);assert.equal(f.nodes['image-count'].textContent,'2');
+});
+test('HTTP failure displays the safe classification and correlated request ID',async()=>{
+ const id='12345678-1234-1234-1234-123456789abc';const f=fixture([{httpResponse:{ok:false,headers:{get:()=>id},json:async()=>({error:'private raw data',diagnostic:{code:'invalid-catalog',requestId:id}})}}]);await f.settle();
+ assert.match(f.nodes.error.textContent,/清单结构未确认/);assert.ok(f.nodes.error.textContent.includes(id));assert.ok(!f.nodes.error.textContent.includes('private'));
+});
+test('Snapshot-only generic truncation remains incomplete after its last cursor',async()=>{
+ const f=fixture([{...page('a.qcow2'),nextSnapshotCursor:'snap-a'}, {...page('a.qcow2'),truncated:true,nextSnapshotCursor:null,snapshots:[{name:'last-visible',present:true}],archiveScan:{reasons:[]}}]);await f.settle();
+ await f.nodes['more-snapshots'].events.click();await f.settle();assert.match(f.nodes.status.textContent,/清单仍有缺口/);assert.doesNotMatch(f.nodes.status.textContent,/本轮快照批次已读取完/);
 });

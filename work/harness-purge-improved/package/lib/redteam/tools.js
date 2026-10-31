@@ -1,4 +1,6 @@
 import { projectSlotsFor } from './personal-project-slots.mjs'
+import { handleSecurityOp } from './personal-security-workbench.mjs'
+import { securityModelWire } from './personal-security-model.mjs'
 import { sessionInfoOf, bindingKeyOf, resolveEngagement } from './personal-session-resolution.mjs'
 import { redactDisplay } from './personal-evidence-redaction.mjs'
 import { installNativeEvidenceObserver, listNativeReceipts } from './personal-evidence-receipts.mjs'
@@ -54,6 +56,8 @@ function considerBin(list, bin) {
   const nm = text.lastIndexOf('/node_modules/')
   if (nm >= 0) addCandidate(list, join(text.slice(0, nm), 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))
   const dir = dirname(text)
+  // Dedicated VM runtime is also installed directly as <root>/lib/bin.js.
+  addCandidate(list, join(dir, '..', 'package.json'))
   /* npm 全局的 argv 常常是 …/bin/dsh，真正的包在旁边的 lib/node_modules。 */
   addCandidate(list, join(dir, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))
   addCandidate(list, join(dir, '..', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))
@@ -138,7 +142,7 @@ function defineTool(spec) {
 export const name = 'dsh-purge-redteam-tools'
 
 /** 硬依赖工具注册表；`redteam` 在 host 平面由 store 发布，预设域内用软取。 */
-export const inject = ['tools']
+export const inject = ['tools', 'redteam']
 
 /** 一次调用的会话解析结果。 */
 /** 当前会话的绑定关系（redteam_session_info 与面板展示用）。 */
@@ -273,13 +277,43 @@ export function apply(ctx) {
       let id;
       try { id = resolveEngagement(store, exec, args.engagement); } catch {}
       const safe = id && store.redactResult ? store.redactResult(id, value) : redactDisplay(value);
-      return typeof safe === 'string' ? safe : JSON.stringify(safe, null, 2);
+      if(wrapped.name==='redteam_security_audit')return securityModelWire(value,safe);
+      return typeof safe === 'string' ? safe : JSON.stringify(safe, null, wrapped.name==='redteam_security_audit'?0:2);
     } });
   }
   installNativeEvidenceObserver(ctx, store, (exec) => {
     const keys = bindKeysOf(exec, store)
     return keys.length ? store.sessionBindings.find(keys) : undefined
   });
+
+  ctx.tools.register(reviewedTool(defineTool({
+    name: 'redteam_security_audit',
+    description: '专用VM安全审计：读取当前绑定项目范围与扫描器状态，启动已在安全审计页面确认范围的Semgrep/Trivy/ZAP固定检查，取消任务，导出已脱敏发现，按两个任务ID只读对比新快照。旧任务无快照或策略变化不可比较；未再次命中不等于修复。status返回计数/最近3任务摘要，report返回<=6000字节结构化分页（无完整Markdown），用section/cursor继续到page.complete；完整报告从页面导出。扫描由VM独立后台持有，网页或headless会话退出不取消；VM关机或后台服务停止仍会中断，不会自动重跑。扫描异步返回持久任务ID，wait(id,waitSeconds=30)有界等待，不重启任务；之后继续查询同一id。同一启动请求重试必须复用requestId。命中为待验证发现，不可直接宣称漏洞或安全。不能扩大范围或代替用户确认发现。',
+    parameters: {
+      action: { type:'string',enum:['status','start','cancel','report','compare','wait'],required:true },
+      engagement: { type:'string',description:'可省略；显式提供必须与当前会话绑定一致' },
+      tool: { type:'string',enum:['semgrep','trivy','zap'] },
+      profileRevision: { type:'integer',description:'start必须使用status返回的当前范围版本' },
+      requestId: { type:'string',description:'start必须提供8–100位唯一请求号，重试复用' },
+      id: { type:'string',description:'cancel或wait使用已返回的同一任务ID' },
+      waitSeconds: { type:'integer',description:'仅wait：0–30秒，默认15；超时仍running，继续wait同一id，勿重发start' },
+      section: { type:'string',enum:['findings','runs'],description:'仅report：默认findings；任务历史用runs' },
+      cursor: { type:'string',description:'仅report：原样传回上一页nextCursor；资料变化会拒绝，需从第一页重读' },
+      limit: { type:'integer',description:'仅report：1–10，默认5；字节预算可能返回更少，持续读取至page.complete' },
+      retestFindingId: { type:'integer',description:'可选，仅复测已人工标记修复的发现' },
+      baseRunId: { type:'string',description:'compare：同一项目的基线任务ID' },
+      currentRunId: { type:'string',description:'compare：同一项目的本次任务ID' },
+    },
+    output: { schema: { type:'string' },render:(_args,value)=>text(value) },
+    async execute(args,exec) {
+      const engagement=resolveEngagement(store,exec)
+      if(args.engagement!==undefined&&args.engagement!==engagement)throw new Error('安全审计项目必须与当前会话绑定一致')
+      const {action,engagement:ignored,...input}=args
+      const op={status:'securityStatus',start:'securityStart',cancel:'securityCancel',report:'securityReport',compare:'securityCompare',wait:'securityWait'}[action]
+      if(!op)throw new Error('未知安全审计操作')
+      return JSON.stringify(await handleSecurityOp(store,{op,engagement,...input},{model:true}))
+    },
+  })))
 
   ctx.tools.register(reviewedTool(defineTool({
     name: 'redteam_engagement_open',

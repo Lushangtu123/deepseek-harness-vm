@@ -193,4 +193,25 @@ class RecoveryCatalog(unittest.TestCase):
    for payload in [['a',[['../outside','']]],['a',[['a','b'],['a/c','']]],['a',[['a','token-name']]],['a',[]],['a',[['a','b']]*6]]:
     raw=base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
     with self.subTest(payload=payload),self.assertRaises(ValueError):self.catalog(Path(temp).resolve(),after='v1:'+raw)
+ def test_undisplayable_snapshot_names_are_reported_as_incomplete(self):
+  for name in ['x'*300,'secret-snapshot','folder/snapshot']:
+   with self.subTest(name=name),tempfile.TemporaryDirectory() as temp:
+    value=self.catalog(Path(temp).resolve(),snapshots=[{'name':name}])
+    self.assertIn('snapshot-name-limit',value['archiveScan']['reasons']);self.assertTrue(value['truncated'])
+ def test_image_only_read_does_not_query_or_verify_snapshots(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve();disk=root/'vm/Data/ubuntu.qcow2';disk.parent.mkdir(parents=True);disk.write_bytes(b'synthetic')
+   with patch.object(m,'ROOT',root),patch.object(m,'VM',disk.parent.parent),patch.object(m,'validate'),patch.object(m,'image_command') as image,patch.object(m,'verify_recovery_bundle') as verify:
+    value=m.recovery_catalog(part='images')
+   image.assert_not_called();verify.assert_not_called();self.assertEqual(value['part'],'images');self.assertNotIn('snapshots',value)
+ def test_snapshot_only_read_does_not_scan_archives_or_query_disk_space(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp).resolve()
+   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'image_command',return_value=MagicMock(stdout='{"snapshots":[]}')),patch.object(m,'verify_recovery_bundle',side_effect=ValueError('synthetic')),patch.object(m,'archive_directory') as archive,patch.object(m.shutil,'disk_usage') as space:
+    value=m.recovery_catalog(part='snapshots')
+   archive.assert_not_called();space.assert_not_called();self.assertEqual(value['part'],'snapshots');self.assertNotIn('images',value)
+ def test_selected_read_rejects_unrelated_cursors_and_unknown_parts(self):
+  with patch.object(m,'validate'):
+   for options in [{'part':'other'},{'part':'images','snapshot_after':'snap-a'},{'part':'snapshots','after':'archive-a'}]:
+    with self.subTest(options=options),self.assertRaises(ValueError):m.recovery_catalog(**options)
 if __name__=='__main__':unittest.main()

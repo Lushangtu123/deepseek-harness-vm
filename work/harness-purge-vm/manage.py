@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """On-demand controller for one dedicated VM. Never opens or drives a browser."""
-import argparse,base64,binascii,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading
+import argparse,base64,binascii,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading,uuid
 from contextlib import contextmanager
 from pathlib import Path
 ROOT=Path.home()/'Library/Application Support/Harness Purge Original'
@@ -12,11 +12,13 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-recovery-proof-20261029'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-security-pagination-20261030'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029','ready-recovery-proof-20261029','ready-security-audit-20261029','ready-security-validated-20261029','ready-security-workflow-20261029','ready-security-diagnostics-20261029','ready-security-background-20261029','ready-security-lifecycle-20261030',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
+RECOVERY_TOOL_FILES|={'tools/security-workbench/'+name for name in ['images.json','rules.json','cache/db/metadata.json']}
 RECOVERY_CONFIG_FILES={'.config/harness-original-capabilities','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','.dsh-improved/AGENTS.md','.config/harness-vm-mode','.local/bin/harness-vm-web'}
+RECOVERY_CONFIG_FILES|={'.config/systemd/user/harness-security.service','.config/systemd/user/harness-security.socket'}
 RECOVERY_PLUGIN_ROOT='tools/imported-dsh-plugins-20261027T185822Z/'
 RECOVERY_PLUGINS={'dsh-context':'0.75.1','dsh-whale-widget':'0.4.2','dshmarket':'1.70.2'}
 RECOVERY_RUNTIME_FILES={'tools/harness-improved-runtime/node_modules/@deepseek-ai/'+name+'/lib/index.js' for name in ['dsh-tools','dsh-tool-bash','dsh-permission-presets','dsh-user-approval']}|{'tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh/package.json','tools/harness-improved-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js'}
@@ -24,7 +26,7 @@ RECOVERY_RUNTIME_FILES={'tools/harness-improved-runtime/node_modules/@deepseek-a
 RECOVERY_RUNTIME_FILES|={'tools/harness-original-capabilities/'+name for name in ['.personal-runtime-manifest.json','lib/bin.js','package.json']}|{'tools/harness-original-capabilities/node_modules/@deepseek-ai/'+name+'/lib/index.js' for name in ['dsh-tools','dsh-tool-bash','dsh-permission-presets','dsh-user-approval']}
 
 _operation_owner=threading.local()
-_operation_labels={'start':'启动','stop':'关闭','switch':'切换版本','snapshot':'建立恢复点','restore':'恢复'}
+_operation_labels={'start':'启动','stop':'关闭','switch':'切换版本','snapshot':'建立恢复点','restore':'恢复','clock':'核对时间'}
 
 @contextmanager
 def vm_operation(action):
@@ -91,9 +93,94 @@ def validate():
 
 def command(argv,**kw):return subprocess.run(argv,check=True,capture_output=True,text=True,timeout=kw.pop('timeout',30),**kw)
 
-def ssh(script,timeout=15,*,input=None):
+SSH_REASONS={'connection-refused':'Connection refused','connection-reset':'Connection reset by peer','connection-closed':'Connection closed','connection-timeout':'Connection timed out','authentication-denied':'Permission denied (publickey)','host-key-mismatch':'Host key verification failed','identity-unavailable':'Dedicated SSH identity unavailable','timeout':'SSH command deadline exceeded','remote-or-unknown-error':'SSH or remote command error; raw command and output omitted'}
+SSH_PHASES={'general','clock-read','clock-set','service-readiness','access-url','guest-shutdown','runtime-status','recovery-proof','program-update','native-check'}
+REMOTE_EXCEPTIONS={'AssertionError','ValueError','TypeError','KeyError','IndexError','AttributeError','CalledProcessError','TimeoutExpired','OSError','PermissionError','FileNotFoundError','ModuleNotFoundError','ImportError','RuntimeError','SyntaxError'}
+
+def valid_ssh_trace(value):
+ return isinstance(value,dict) and set(value)=={'id','phase','remoteException','remoteLine'} and isinstance(value['id'],str) and re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',value['id']) is not None and isinstance(value['phase'],str) and value['phase'] in SSH_PHASES and (value['remoteException'] is None or isinstance(value['remoteException'],str) and value['remoteException'] in REMOTE_EXCEPTIONS) and (value['remoteLine'] is None or type(value['remoteLine']) is int and 1<=value['remoteLine']<=999999)
+
+def reported_remote_failure(raw):
+ # Keep only allowlisted Python exception names and a numeric stdin frame.
+ # Never persist a traceback message, filename, source line or command.
+ if isinstance(raw,bytes):raw=raw.decode('utf-8','replace')
+ if not isinstance(raw,str):return None,None
+ raw=raw[-8192:].strip()
+ if 'Traceback (most recent call last):' not in raw:return None,None
+ match=re.match(r'^([A-Za-z]+)(?::|$)',raw.splitlines()[-1])
+ kind=match.group(1) if match and match.group(1) in REMOTE_EXCEPTIONS else None
+ lines=re.findall(r'^\s*File "<stdin>", line ([1-9][0-9]{0,5}),',raw,re.M)
+ return kind,int(lines[-1]) if kind and lines else None
+
+def ssh_trace_text(error):
+ trace=getattr(error,'trace',None)
+ if not valid_ssh_trace(trace):return ''
+ return '; ref='+trace['id']+' phase='+trace['phase']+((' reported='+trace['remoteException']) if trace['remoteException'] else '')+((' stdinLine='+str(trace['remoteLine'])) if trace['remoteLine'] else '')+' diagnosticSaved='+str(getattr(error,'diagnosticRecorded',False)).lower()
+
+def ssh_diagnostics():
+ try:fd=os.open(ROOT/'ssh-diagnostics.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+ except FileNotFoundError:return []
+ try:
+  info=os.fstat(fd)
+  if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077 or info.st_nlink!=1 or info.st_size>65536:raise ValueError('Unsafe SSH diagnostic file')
+  with os.fdopen(fd,'r') as source:fd=None;rows=json.load(source)
+ finally:
+  if fd is not None:os.close(fd)
+ if not isinstance(rows,list) or len(rows)>50:raise ValueError('Invalid SSH diagnostics')
+ for row in rows:
+  base={'observedAtUnix','elapsedMs','exitCode','reason','detail'}
+  if not isinstance(row,dict) or set(row) not in (base,base|{'trace'}) or row.get('reason') not in SSH_REASONS or row.get('detail')!=SSH_REASONS[row['reason']]:raise ValueError('Invalid SSH diagnostic row')
+  if 'trace' in row and not valid_ssh_trace(row['trace']):raise ValueError('Invalid SSH diagnostic trace')
+  if any(type(row[key]) not in (int,float) or not math.isfinite(row[key]) or row[key]<0 for key in ['observedAtUnix','elapsedMs']):raise ValueError('Invalid SSH diagnostic time')
+  if row['exitCode'] is not None and (type(row['exitCode']) is not int or not -128<=row['exitCode']<=255):raise ValueError('Invalid SSH diagnostic exit')
+ return rows
+
+def record_ssh_failure(reason,code,elapsed,trace=None):
+ fd=None;temporary=None
+ try:
+  info=ROOT.stat()
+  if ROOT.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077:return False
+  fd=os.open(ROOT/'.ssh-diagnostics.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600);info=os.fstat(fd)
+  if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077 or info.st_nlink!=1:return False
+  fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  if trace is not None and not valid_ssh_trace(trace):return False
+  rows=ssh_diagnostics();rows.append({'observedAtUnix':time.time(),'elapsedMs':max(0,round(elapsed*1000)),'exitCode':code,'reason':reason,'detail':SSH_REASONS[reason],**({'trace':trace} if trace is not None else {})})
+  out,temporary=tempfile.mkstemp(prefix='.ssh-diagnostic-',dir=ROOT)
+  with os.fdopen(out,'w') as stream:json.dump(rows[-50:],stream);stream.flush();os.fsync(stream.fileno())
+  os.replace(temporary,ROOT/'ssh-diagnostics.json');temporary=None
+  return True
+ except Exception:return False
+ finally:
+  if temporary is not None:
+   try:os.unlink(temporary)
+   except OSError:pass
+  if fd is not None:os.close(fd)
+
+class SSHFailure(subprocess.CalledProcessError):
+ def __str__(self):return f'VM SSH failed (exit {self.returncode}): '+SSH_REASONS[self.reason]+ssh_trace_text(self)
+
+class SSHDeadline(subprocess.TimeoutExpired):
+ def __str__(self):return f'VM SSH command timed out after {self.timeout} seconds; remote outcome unconfirmed'+ssh_trace_text(self)
+
+def ssh(script,timeout=15,*,input=None,phase='general'):
+ if not isinstance(phase,str) or phase not in SSH_PHASES:raise ValueError('Unknown SSH diagnostic phase')
+ trace={'id':str(uuid.uuid4()),'phase':phase,'remoteException':None,'remoteLine':None}
  argv=['/usr/bin/ssh','-F','/dev/null','-p','49223','-i',str(SETUP/'guest-ed25519'),'-o','IdentityAgent=none','-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','ConnectTimeout=3','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile="'+str(SETUP/'known_hosts')+'"','-o','GlobalKnownHostsFile=/dev/null','purge@127.0.0.1',script]
- return command(argv,timeout=timeout,**({'input':input} if input is not None else {}))
+ started=time.monotonic()
+ try:return command(argv,timeout=timeout,**({'input':input} if input is not None else {}))
+ except subprocess.CalledProcessError as error:
+  reason='remote-or-unknown-error';raw=error.stderr
+  if isinstance(raw,bytes):raw=raw.decode('utf-8','replace')
+  if error.returncode==255 and isinstance(raw,str):
+   for key,needle in [('connection-refused','connection refused'),('connection-reset','connection reset by peer'),('connection-closed','connection closed'),('connection-timeout','connection timed out'),('authentication-denied','permission denied (publickey'),('host-key-mismatch','host key verification failed'),('identity-unavailable','no such identity')]:
+    if needle in raw[:8192].lower():reason=key;break
+  failure=SSHFailure(error.returncode,error.cmd,output=error.output,stderr=error.stderr);failure.reason=reason
+  if error.returncode!=255:trace['remoteException'],trace['remoteLine']=reported_remote_failure(error.stderr)
+  failure.trace=trace;failure.diagnosticRecorded=record_ssh_failure(reason,error.returncode,time.monotonic()-started,trace)
+  raise failure from None
+ except subprocess.TimeoutExpired as error:
+  failure=SSHDeadline(error.cmd,error.timeout,output=error.output,stderr=error.stderr);failure.trace=trace;failure.diagnosticRecorded=record_ssh_failure('timeout',None,time.monotonic()-started,trace)
+  raise failure from None
 
 def vm_status():return command([UTM,'status',UUID],timeout=10).stdout.strip()
 
@@ -133,6 +220,7 @@ def web_entry_stop():
   try:
    with socket.create_connection(('127.0.0.1',49226),timeout=0.5):pass
   except ConnectionRefusedError:return
+  except ConnectionResetError:pass  # Closing listener can reset a probe; keep waiting for refusal.
   time.sleep(0.2)
  raise RuntimeError('Stable web entry remains open after stop')
 
@@ -178,7 +266,7 @@ def authenticated_ready(url):
 
 def measure_guest_clock():
  before=time.time()
- raw=ssh("python3 -c 'import time; print(time.time())'",timeout=5).stdout.strip()
+ raw=ssh("python3 -c 'import time; print(time.time())'",timeout=5,phase='clock-read').stdout.strip()
  after=time.time()
  guest=float(raw)
  if not math.isfinite(guest) or not 0<=after-before<=2:raise ValueError('Guest clock measurement invalid or too slow; no time change attempted')
@@ -192,10 +280,31 @@ def synchronize_clock():
   if not math.isfinite(epoch) or epoch<=0:raise ValueError('Host clock unavailable')
   # The trusted SSH endpoint is the dedicated guest. Never set macOS time or
   # relax the VM network fence to obtain an external NTP connection.
-  ssh(f'sudo -n /usr/bin/date -u --set=@{epoch:.6f} >/dev/null',timeout=8)
+  ssh(f'sudo -n /usr/bin/date -u --set=@{epoch:.6f} >/dev/null',timeout=8,phase='clock-set')
   offset=measure_guest_clock()
   if abs(offset)>2:raise RuntimeError('Guest clock adjustment was not verified; startup readiness stopped')
  return {'adjusted':adjusted,'offsetSeconds':round(offset,6)}
+
+def guest_ssh_listening():
+ try:
+  value=command(['/usr/sbin/lsof','-nP','-a','-u',str(os.getuid()),'-iTCP@127.0.0.1:49223','-sTCP:LISTEN','-Fp'],timeout=5).stdout
+ except subprocess.CalledProcessError as error:
+  if error.returncode==1:return False
+  raise
+ return any(re.fullmatch(r'p[1-9][0-9]*',line) for line in value.splitlines())
+
+def maintain_clock():
+ try:
+  with vm_operation('clock'):
+   validate()
+   # Background launchd children cannot reliably use UTM's GUI IPC. Observe
+   # only our owned loopback SSH listener; SSH still checks the pinned host key.
+   if not guest_ssh_listening():return {'state':'skipped','reason':'not-listening'}
+   value=synchronize_clock()
+   return {'state':'adjusted' if value['adjusted'] else 'current',**value}
+ except RuntimeError as error:
+  if str(error).startswith('专用 VM 正在进行'):return {'state':'skipped','reason':'busy'}
+  raise
 
 @vm_mutation('start')
 def start(quiet=False):
@@ -204,14 +313,14 @@ def start(quiet=False):
  deadline=time.monotonic()+75;last=None;clock_checked=False;entry_checked=False
  while time.monotonic()<deadline:
   try:
-   active=ssh('XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active dsh-original',timeout=6)
+   active=ssh('XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active dsh-original',timeout=6,phase='service-readiness')
    if active.stdout.strip()=='active':
     if not clock_checked:
      clock=synchronize_clock();clock_checked=True
      print('VM clock verified: '+json.dumps(clock))
     if not entry_checked:
      web_entry_start();entry_checked=True
-    url=ssh(URL_SCRIPT).stdout.strip()
+    url=ssh(URL_SCRIPT,phase='access-url').stdout.strip()
     if not re.fullmatch(r'http://127\.0\.0\.1:49224/\?token=[A-Za-z0-9_-]+',url):raise ValueError('Invalid guest access URL')
     url=url.replace(':49224/',':49226/',1)
     if authenticated_ready(url):break
@@ -275,7 +384,7 @@ def stop():
  state=vm_status()
  if state not in ('started','stopped'):raise RuntimeError('VM state is '+state+'; resume it in UTM before normal shutdown')
  if state=='started':
-  try:ssh('sudo /usr/sbin/shutdown -h now',timeout=10)
+  try:ssh('sudo /usr/sbin/shutdown -h now',timeout=10,phase='guest-shutdown')
   except subprocess.CalledProcessError as e:
    if e.returncode!=255:raise
   deadline=time.monotonic()+45
@@ -411,13 +520,9 @@ def archive_directory(relative):
  finally:
   for fd in reversed(opened):os.close(fd)
 
-def recovery_catalog(after=None,snapshot_after=None):
- """Bounded public metadata only. No SSH, recovery, removal, or VM state changes."""
- validate()
- protected={'ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES[-3:]}
+def snapshot_catalog(snapshot_after):
  safe=public_archive_name
- after_entry,resume_stack=archive_cursor(after)
- if snapshot_after is not None and (not safe(snapshot_after) or len(snapshot_after)>240 or '/' in snapshot_after):raise ValueError('Invalid recovery cursor')
+ protected={'ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES[-3:]}
  snapshot_state='observed';snapshots=[];snapshot_name_limit=False
  try:
   metadata=json.loads(image_command(['info','--force-share','--output=json',str(VM/'Data/ubuntu.qcow2')],timeout=5).stdout)
@@ -425,7 +530,7 @@ def recovery_catalog(after=None,snapshot_after=None):
   records=metadata.get('snapshots',[])
   if any(not isinstance(row,dict) or not isinstance(row.get('name'),str) or not row['name'] for row in records):raise ValueError('Invalid disk snapshot record')
   actual={row['name'] for row in records if safe(row['name']) and len(row['name'])<=240 and '/' not in row['name']}
-  snapshot_name_limit=any(safe(row['name']) and len(row['name'])>240 and '/' not in row['name'] for row in records)
+  snapshot_name_limit=any(not safe(row['name']) or len(row['name'])>240 or '/' in row['name'] for row in records)
  except (OSError,ValueError,TypeError,AttributeError,subprocess.SubprocessError):snapshot_state='unavailable';actual=set()
  names=sorted(actual|set(REVIEWED_RECOVERIES)|protected)
  pinned=list(dict.fromkeys([CURRENT_RECOVERY,'ready-original','ready-toolchain-20261025',*reversed(REVIEWED_RECOVERIES[-3:])]))
@@ -443,8 +548,11 @@ def recovery_catalog(after=None,snapshot_after=None):
    except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):bundle_state='invalid'
   present=name in actual if snapshot_state=='observed' else None
   snapshots.append({'name':name,'present':present,'current':name==CURRENT_RECOVERY,'protected':name in protected,'reviewCandidate':present is True and name not in protected,'bundleState':bundle_state,'createdAt':created})
+ return {'snapshotState':snapshot_state,'snapshots':snapshots,'nextSnapshotCursor':next_snapshot_cursor},(['snapshot-name-limit'] if snapshot_name_limit else [])
+
+def image_catalog(after):
+ safe=public_archive_name;after_entry,resume_stack=archive_cursor(after)
  images=[];base=ROOT/'archived-validation';visited=0;skipped=0;scanned=0;reasons=set();continuation=set();next_cursor=None
- if snapshot_name_limit:reasons.add('snapshot-name-limit')
  deadline=time.monotonic()+2
  entries=[];remaining=[]
  if base.is_dir() and not base.is_symlink() and base.resolve()==base:
@@ -493,7 +601,23 @@ def recovery_catalog(after=None,snapshot_after=None):
  elif base.exists():reasons.add('invalid-root')
  space=shutil.disk_usage(ROOT);disk=(VM/'Data/ubuntu.qcow2').stat()
  scan={'entriesScanned':scanned,'entriesRemaining':max(0,len(remaining)-scanned),'visitedDirectories':visited,'skippedMetadataDirectories':skipped,'reasons':sorted(reasons),'continuationReasons':sorted(continuation)}
- return {'nextSnapshotCursor':next_snapshot_cursor,'readOnly':True,'observedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'currentRecovery':CURRENT_RECOVERY,'snapshotState':snapshot_state,'snapshots':snapshots,'images':images,'truncated':bool(reasons),'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
+ return {'images':images,'nextCursor':next_cursor,'archiveScan':scan,'storage':{'freeBytes':space.free,'totalBytes':space.total,'primaryLogicalBytes':disk.st_size,'primaryAllocatedBytes':disk.st_blocks*512}}
+
+def recovery_catalog(after=None,snapshot_after=None,part='all'):
+ """Read one bounded public list, or both for backward-compatible initial reads."""
+ if part not in ('all','snapshots','images') or part=='images' and snapshot_after is not None or part=='snapshots' and after is not None:raise ValueError('Invalid recovery catalog part')
+ archive_cursor(after)
+ if snapshot_after is not None and (not public_archive_name(snapshot_after) or len(snapshot_after)>240 or '/' in snapshot_after):raise ValueError('Invalid recovery cursor')
+ validate()
+ result={'part':part,'readOnly':True,'currentRecovery':CURRENT_RECOVERY}
+ snapshot_reasons=[]
+ if part!='images':
+  value,snapshot_reasons=snapshot_catalog(snapshot_after);result.update(value)
+ if part!='snapshots':result.update(image_catalog(after))
+ scan=result.setdefault('archiveScan',{'entriesScanned':0,'entriesRemaining':0,'visitedDirectories':0,'skippedMetadataDirectories':0,'reasons':[],'continuationReasons':[]})
+ scan['reasons']=sorted(set(scan['reasons'])|set(snapshot_reasons))
+ result.update(truncated=bool(scan['reasons']),observedAt=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()))
+ return result
 
 def verify_recovery_bundle(snapshot):
  folder=recovery_path(snapshot)
@@ -606,7 +730,7 @@ print(json.dumps({'originalCapabilities':originalCapabilities,'mode':mode,'confi
 """.replace('EXPECTED',repr(expected)).replace('PLUGIN_OBSERVATION',inspect.getsource(plugin_differences)).replace('PLUGIN_ROOTS',repr({name:RECOVERY_PLUGIN_ROOT+name for name in RECOVERY_PLUGINS}))
  # Plugin manifests exceed Linux's per-argument shell limit; stream the fixed
  # read-only observer instead of making the inventory a remote command argument.
- actual=json.loads(ssh('python3 -',input=script,timeout=10).stdout)
+ actual=json.loads(ssh('python3 -',input=script,timeout=10,phase='runtime-status').stdout)
  if actual.get('mode') not in ('original','improved','unknown'):raise ValueError('Invalid runtime identity')
  if inventory:
   different=set(actual.get('differentFiles',[]));recovery['groups']={}
@@ -821,8 +945,11 @@ console.log(JSON.stringify(result));
   return result
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--archive-after');parser.add_argument('--snapshot-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['start','stop','status','restore','switch','snapshot-current','environment','recoveries','capabilities','repair-profile','clock-sync','ssh-diagnostics','clock-maintain']);parser.add_argument('--mode',choices=['original','improved']);parser.add_argument('--quiet',action='store_true');parser.add_argument('--confirm-restore',action='store_true');parser.add_argument('--snapshot',choices=['ready-original','ready-toolchain-20261025',*REVIEWED_RECOVERIES],default='ready-original');parser.add_argument('--catalog-part',choices=['all','snapshots','images'],default='all');parser.add_argument('--archive-after');parser.add_argument('--snapshot-after');parser.add_argument('--capability-mode',choices=['enable','disable','status'],default='status');parser.add_argument('--apply-profile-repair',action='store_true');args=parser.parse_args()
  if args.action=='start':start(args.quiet)
+ elif args.action=='clock-sync':validate();print(json.dumps(synchronize_clock()))
+ elif args.action=='clock-maintain':print(json.dumps(maintain_clock()))
+ elif args.action=='ssh-diagnostics':validate();print(json.dumps(ssh_diagnostics()))
  elif args.action=='repair-profile':print(json.dumps(repair_profile(apply=args.apply_profile_repair)))
  elif args.action=='switch':switch(args.mode,args.quiet)
  elif args.action=='stop':stop()
@@ -830,7 +957,7 @@ def main():
  elif args.action=='snapshot-current':create_current_recovery()
  elif args.action=='capabilities':print(json.dumps(original_capabilities(args.capability_mode)))
  elif args.action=='environment':print(json.dumps(deployment_status()))
- elif args.action=='recoveries':print(json.dumps(recovery_catalog(after=args.archive_after,snapshot_after=args.snapshot_after)))
+ elif args.action=='recoveries':print(json.dumps(recovery_catalog(after=args.archive_after,snapshot_after=args.snapshot_after,part=args.catalog_part)))
  else:validate();print(json.dumps({'vm':UUID,'status':vm_status(),'hostShares':False,'clipboard':False,'usb':False,'network':'Restricted IPv4; only allowlisted public origins through external proxy','originalGuestFullAccessAvailable':True,'hostFullAccess':False},indent=2))
 if __name__=='__main__':
  try:main()

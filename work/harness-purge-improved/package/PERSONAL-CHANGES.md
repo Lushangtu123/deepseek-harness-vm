@@ -1,3 +1,19 @@
+## 2026-10-29 · Trivy依赖包身份
+
+漏洞记录保留原CVE与文件位置，另以完整受限包名、版本、路径、PkgID/PURL区分身份；不同包不再相互覆盖。包身份在独立SQLite表中与发现及快照同事务提交，旧记录不回填或删除，明确提示历史可能已合并。快照v2保留包身份，新旧Trivy策略不混比，旧Semgrep/ZAP快照继续可读。复测按同包名/包路径核对，升级后同类命中仍会重开，缺包身份的旧Trivy记录不自动得出复测结论。页面、审计报告和对比报告展示包信息，动态Markdown保持字面文本。
+
+## 2026-10-29 · 安全审计资料结构校验
+
+页面采用新资料前核对范围、任务、发现、运行资源和可选总数的实际渲染字段，拒绝重复ID、页上限及矛盾计数。异常读取保留上次成功资料和草稿，明确标为未确认并暂停写入/导出，正常刷新后恢复。未知字符串状态和旧资料缺少可选总数继续兼容；后端扫描、数据库与权限不变，不将历史偶发空白归因于此。
+
+## 2026-10-29 · 安全审计报告范围与汇总
+
+Markdown增加全量发现状态/严重性和任务状态汇总，当前保存范围与各任务历史范围分别展示；任务版本、规则、漏洞库时间与覆盖取自持久记录，缺项明确未记录。汇总在明细达到20000条上限时仍覆盖全部记录；同一SQLite读取事务保持计数与明细一致。动态文本再次脱敏并按字面Markdown展示，不更改发现状态或推断安全结论。
+
+## 2026-10-29 · 安全审计报告下载保护
+
+导出报告绑定当前资料读取代次并核对返回项目；刷新、重检、卸载后的旧响应和旧按钮不再触发下载或覆盖错误。同步请求锁阻止快速连点，只有对应请求能解除导出忙状态；页面显示“正在导出…”。父组件既有项目key隔离保留，不更改扫描、数据库、范围或权限。
+
 ## Workbench v20 — 会话契约与只读恢复权限检查
 
 - 会话响应校验完整数组、记录 ID、展示字段及统计；异常数据保持未确认，刷新前不提供记录操作，保留项目与请求代次保护。
@@ -117,3 +133,41 @@ CLI `scripts/export-engagement-report.mjs --engagement <id> --out <父目录>` �
 pnpm键污染修复仅通过统一启动器的显式维护动作执行，作用于合并版web profile。缺失workspace/构建配置不创建，健康文件不重写，false保留，重复的非本插件键或无法确认许可时停止；改写前保存私有备份并保留权限。没有引入上游自动profile插入、自动授权构建、父子会话权限继承、DSH NEXT适配或整包更新。core原子写权限保留及npm启动器软链保护已在本地版本实现，继续沿用。保留原版提示词、补丁表和既有角色/项目绑定。
 
 安装目录保留tools/dsh-purge-personal-1.1.77-personal.1，以保持既有file:依赖引用；实际包版本以package.json为准。
+
+
+## 2026-10-29 · Security audit phase 1
+
+- Added project-scoped Semgrep CE, offline Trivy and VM-loopback ZAP baseline adapters; pinned official ARM64 images, read-only repository mount, one worker per service, bounded time/memory/output.
+- Added the 安全审计 page and `redteam_security_audit` tool. Scope and finding review use owner-authenticated same-origin UI operations; the model audit tool cannot expand scope or approve findings. Existing VM shell/original capabilities retain their existing access.
+- Durable request/run IDs, explicit uncertain-write retry, Unicode project support, cancellation and restart interruption handling. Findings begin unverified; equivalent-policy retests must prove original-file coverage; moved-line recurring hits reopen. Baseline ZAP JSON alone does not prove original-URL coverage, so absence cannot automatically close a ZAP finding.
+- Markdown export independently reads up to 20000 findings and 20000 runs, declares any truncation; UI shows latest 500 findings and 30 runs with totals. No raw secrets/source snippets in normalized findings. Raw scanner artifacts remain private inside VM run directories and are excluded from the repository.
+- External scanner images/databases are installed separately; a source restore does not itself recreate those large runtime assets. Semgrep uses six local starter rules, not a comprehensive rule pack; Trivy configuration checks use its embedded checks.
+
+- Native socket verification caught upstream baseline startup retaining its first wildcard `-host`. A fixed per-run baseline hook now rewrites every upstream host argument to 127.0.0.1 and refuses an unrecognized startup shape; it does not alter the upstream image. Classic baseline mode is selected explicitly.
+
+- Tool SDK lookup now handles the VM runtime's direct `<root>/lib/bin.js` installation independently of current directory. Registration and project binding are checked using the installed native SDK without a model request.
+
+- Security API business rejections now use a structured `ok:false` acknowledgement after owner/origin admission, so the browser can distinguish a known revision rejection from an uncertain transport failure. Unauthenticated and cross-origin requests retain HTTP 401/403. Real HTTP coverage checks all three cases.
+
+
+## 2026-10-29 · Runtime readiness verification
+
+Scanner readiness now verifies local pinned ARM64/Linux Docker images, safe regular files, the Semgrep rule digest, Trivy metadata and the complete database digest/size. Thirty-second cached evidence is labelled; an explicit read-only recheck and each launch force a new inspection. Invalid/future metadata and missing/corrupt resources refuse readiness. A database older than seven days remains usable with a visible warning; this is a local reminder, not a vendor support policy.
+
+Added a dedicated-VM-only `scripts/security-runtime-preflight.mjs` CLI. It inspects existing resources without running a scanner, fetching updates, changing access or claiming GitHub-latest status. No image/database update or new VM recovery point is performed.
+
+## 2026-10-29 · Manual vulnerability database maintenance
+
+Mac unified launcher option 9 checks the official GHCR Trivy DB schema-2 revision and supports explicitly confirmed update/recovery. Anonymous HTTPS downloads stay on Mac, with bounded archive entries and SHA-256 checks repeated in the dedicated VM. Active managed scans block replacement; a journal preserves the old database and exact manifest. Harness pauses only after staging and validation. Failed validation/startup restores the old files; process loss leaves a maintenance marker requiring explicit recovery. Readiness checks that marker before cached evidence. The UI shows instructions and the last controlled maintenance result. Scanner images, VM egress and Mac permissions are unchanged. This is process-interruption recovery, not a power-loss atomicity guarantee.
+
+## 2026-10-29 · Local Semgrep review policy 2
+
+Expanded the local offline policy from six to sixteen Python/JavaScript/TypeScript heuristics with positive and benign-control fixtures. Kept original rule IDs and reduced constant-eval, SafeLoader and unrelated shell-keyword noise. Runtime verifies rule identity and exposes version/count/languages; each new scan records that policy in its durable run and Markdown report. Changed rule digests produce different retest coverage identities. Hits still require manual verification; this policy does not establish data flow, exploitability or whole-project coverage. No automatic fix, external rule download, scanner upgrade or permission/network change.
+
+## 2026-10-29 · Scan observation comparison
+
+New complete scans store bounded normalized observations in a separate per-run SQLite table within the findings/completion savepoint. No historical backfill or automatic finding-status changes. A read-only same-project comparison requires matching scanner and policy identity, distinguishes new/persisting positions, covered-file absence and unconfirmed coverage, and never calls absent hits fixed. Exact rule/location matching can classify moved lines as changed positions. Legacy, incomplete, incompatible or oversized observations are explicitly unavailable. UI and bound model tool support exact run pairs; stale/foreign responses do not populate the current view. Each category and Markdown comparison detail is capped at 100 with full saved-snapshot counts and explicit truncation. Existing full-access VM capabilities and host isolation are unchanged.
+
+Native real-project acceptance exposed a service-order race: tools captured an empty fallback if the asset store had not yet published. Both the tools export and bundle now require tools plus redteam, so Cordis waits for the store; no fixed sleep or retry is used. The installed Cordis integration control activates the tools before publishing the store, then checks a real session binding after publication.
+
+2026-10-29 Harness follow-ups: model-only status is a compact summary; report uses version-checked finding/run pages and a6000UTF8-byte budget instead of returning a full Markdown blob. Native tool serialization preserves compactJSON; full UI/export unchanged. New wait action observes one exact task for0–30seconds without launch/retry and documents one-shot headless lifetime. Source-free scanner diagnostics (type/path/line,20items with total/truncation) persist with results and display in audit/report. Old partial runs have unknown reasons unless originally recorded; no silent backfill or weakened coverage rules.

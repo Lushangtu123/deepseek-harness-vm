@@ -6,6 +6,7 @@
  * 两者共用本模块，保证「界面看到的」「智能体查到的」「命令行验的」是同一份实现。
  */
 import { DatabaseSync } from 'node:sqlite'
+import { disposeSecurity } from './personal-security-workbench.mjs'
 import { connect as tcpConnect } from 'node:net'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -1023,6 +1024,7 @@ export class RedteamStore {
   }
 
   close() {
+    const disposingSecurity = disposeSecurity(this)
     this.sessionBindings.close()
     for (const handle of this.handles.values()) {
       try { handle.close() } catch { /* 关闭失败不阻断卸载 */ }
@@ -1032,6 +1034,7 @@ export class RedteamStore {
       try { this.kbHandle.close() } catch { /* 忽略 */ }
       this.kbHandle = null
     }
+    return disposingSecurity
   }
 
   /* ---------- 靶标生命周期 ---------- */

@@ -1,9 +1,10 @@
+const CATALOG_LABELS={'catalog-timeout':'本机清单读取超时','browser-timeout':'浏览器读取超时或已取消','catalog-busy':'清单读取繁忙','output-limit':'控制器输出超出上限','controller-terminated':'控制器超时或被终止','controller-unavailable':'控制器无法启动','controller-failed':'控制器执行失败','invalid-json':'清单响应无法解析','invalid-catalog':'清单结构未确认','catalog-unavailable':'清单服务暂不可用','connection-failed':'浏览器连接失败','http-error':'本机入口返回错误','catalog-changed':'恢复入口已变化，请刷新清单'};
 export const HEALTH_HTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Harness 本机连接状态</title>
 <style>
 :root{color-scheme:light;font-family:"Avenir Next","PingFang SC","Microsoft YaHei",sans-serif;color:#17253c;background:#f4f7fc}*{box-sizing:border-box}body{max-width:940px;margin:64px auto;padding:0 28px;font-size:14px;line-height:1.7}h1{font-size:30px;letter-spacing:-.04em;line-height:1.3;margin:12px 0}h1:before{content:"LOCAL CONNECTION";display:block;font-size:10px;letter-spacing:.2em;color:#5072a9;margin-bottom:12px}p{color:#586b86}table{width:100%;border-collapse:separate;border-spacing:0;margin:22px 0;background:#fff;border:1px solid #dfe7f2;border-radius:16px;overflow:hidden;box-shadow:0 6px 22px #233e6506}th,td{text-align:left;padding:14px 20px;border-bottom:1px solid #edf1f7;font-size:13px}th{color:#536783;font-weight:600;background:#f9fbfe;font-size:11px}tr:last-child td{border:0}td:last-child{font-family:Menlo,Consolas,monospace;color:#60718a}button,a{font-family:inherit;font-size:12px;font-weight:600;line-height:1.5}button{appearance:none;background:#2459d8;border:1px solid #2459d8;color:#fff;border-radius:9px;padding:9px 16px;margin:12px 12px 0 0;cursor:pointer}button:hover{background:#1949be}a{color:#2459d8;text-underline-offset:4px}button:focus-visible,a:focus-visible{outline:3px solid #2459d8;outline-offset:4px}#error{color:#a32134;overflow-wrap:anywhere}#summary{padding:14px 18px;border:1px solid #dfe7f2;border-radius:12px;background:#fff;color:#3c526f}small{display:block;color:#586b86;font-size:11px;line-height:1.8;margin-top:20px}@media(max-width:600px){body{margin:28px auto;padding:0 16px}h1{font-size:24px}th,td{padding:11px 10px;font-size:11px}td:first-child{max-width:145px;overflow-wrap:anywhere}}
 </style>
 <h1>Harness 本机链路状态</h1><p>按本机入口实际观察显示。未观察到表示尚无记录，不代表已经通过检查。</p><button id="refresh">刷新状态</button> <a href="/#redteam-full">返回演练台</a><p id="error" role="alert"></p><p id="freshness" role="status"></p><table><thead><tr><th>层级</th><th>最近观察</th><th>耗时</th><th>最后观察</th></tr></thead><tbody id="layers"></tbody></table><p id="summary"></p><h2>最近异常与后续成功</h2><p>当前状态与历史记录分开显示。后续请求完整成功仅说明该类别的一次请求已完成，不代表整个服务均已恢复。</p><div style="max-height:440px;overflow:auto"><table aria-label="最近诊断事件"><thead><tr><th>时间 / 序号</th><th>类别</th><th>阶段</th><th>事件</th><th>耗时</th></tr></thead><tbody id="events"></tbody></table></div><small>只保留最近 100 条状态、类别和耗时。没有请求正文、Cookie、查询参数或工具输出；关闭入口即清空记录。遇到登录失效，请重新运行启动入口。</small>
-<script>const labels={entry:'本机入口',transport:'VM HTTP 连接',index:'首屏文档',assets:'脚本与样式',api:'Harness API',redteam:'演练资料 API',purge:'插件 API',websocket:'WebSocket',sse:'插件订阅 SSE'};
+<script>const catalogLabels=${JSON.stringify(CATALOG_LABELS)};const labels={entry:'本机入口',transport:'VM HTTP 连接',index:'首屏文档',assets:'脚本与样式',api:'Harness API',redteam:'演练资料 API',purge:'插件 API',recovery:'本机恢复清单',websocket:'WebSocket',sse:'插件订阅 SSE'};
 const states={'ok':'正常','receiving':'正在接收正文','cancelled':'请求已取消','connected':'已连接','closed':'已断开','not-observed':'未观察到','auth-required':'登录已失效 / 需要登录','denied':'访问被拒绝','http-error':'HTTP 错误','connection-error':'连接失败','timeout':'等待超时'};
 let refreshGeneration=0,activeRefresh,latest,readClock,attemptClock,failedRead=false;
 const clock=()=>({wall:Date.now(),mono:typeof performance==='undefined'?Date.now():performance.now()});
@@ -15,7 +16,7 @@ function renderLayers(){
   const item=latest.layers[key]||{state:'not-observed'};
   const age=Number.isFinite(item.ageMs)?item.ageMs+viewAge:Infinity;
   const stale=failedRead||viewAge>=60000||item.stale===true||(!item.live&&age>=60000);
-  const state=item.error==='body-incomplete'?'正文中断':item.error==='body-timeout'?'正文等待超时':item.phase==='complete'&&item.state==='ok'?'正文已完整接收':states[item.state]||'未知';
+  const state=catalogLabels[item.code]|| (item.error==='body-incomplete'?'正文中断':item.error==='body-timeout'?'正文等待超时':item.phase==='complete'&&item.state==='ok'?'正文已完整接收':states[item.state]||'未知');
   const date=Date.parse(item.observedAt),observed=Number.isFinite(date)?new Date(date).toLocaleString('zh-CN'):'未记录';
   const row=document.createElement('tr');
   for(const value of [label,item.state!=='not-observed'&&stale?'上次：'+state+' · 当前待观察':state,item.responseMs===undefined?'—':item.responseMs+' ms',observed]){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell)}table.appendChild(row);
@@ -34,14 +35,15 @@ async function refresh(){
   if(generation!==refreshGeneration||controller.signal.aborted)return;
   latest=data;readClock=clock();failedRead=false;renderLayers();
   const history=document.getElementById('events');history.replaceChildren();const failed=new Set(),events=[];
-  const phases={queue:'排队',queued:'排队',headers:'等待响应头',body:'接收正文',complete:'完整结束',stream:'流式连接'};
+  const phases={queue:'排队',queued:'排队',headers:'等待响应头',body:'接收正文',complete:'完整结束',stream:'流式连接',controller:'本机控制器',parse:'解析响应',validate:'校验清单',deadline:'清单截止时间',reader:'读取清单'};
   for(const item of data.recent.slice(-100)){
    const bad=['connection-error','timeout','http-error','auth-required','denied'].includes(item.state);
    const recovered=item.state==='ok'&&item.phase==='complete'&&failed.has(item.category);
    if(bad)failed.add(item.category);else if(recovered)failed.delete(item.category);
    if(!bad&&!recovered)continue;
-   const time=Date.parse(item.observedAt),id=Number.isSafeInteger(item.eventId)?' #'+item.eventId:'';
-   events.push([Number.isFinite(time)?new Date(time).toLocaleString('zh-CN')+id:'时间未记录'+id,labels[item.category]||'其他请求',phases[item.phase]||'阶段未记录',recovered?'后续请求完整成功':item.error==='body-incomplete'?'正文中断':item.error==='body-timeout'?'正文等待超时':states[item.state]||'未知',Number.isFinite(item.responseMs)?item.responseMs+' ms':'—']);
+   const time=Date.parse(item.observedAt),id=(Number.isSafeInteger(item.eventId)?' #'+item.eventId:'')+(item.requestId?' · '+item.requestId:'');
+   const detail=(catalogLabels[item.code]||states[item.state]||'未知')+(Number.isInteger(item.exitCode)?' · 退出 '+item.exitCode:'')+(item.signal?' · '+item.signal:'');
+   events.push([Number.isFinite(time)?new Date(time).toLocaleString('zh-CN')+id:'时间未记录'+id,labels[item.category]||'其他请求',phases[item.phase]||'阶段未记录',recovered?'后续请求完整成功':item.category==='recovery'?detail:item.error==='body-incomplete'?'正文中断':item.error==='body-timeout'?'正文等待超时':states[item.state]||'未知',Number.isFinite(item.responseMs)?item.responseMs+' ms':'—']);
   }
   for(const values of events.reverse()){const row=document.createElement('tr');for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell)}history.appendChild(row)}
   if(!events.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=5;cell.textContent='保留范围内尚无异常事件。';row.appendChild(cell);history.appendChild(row)}
@@ -60,10 +62,15 @@ export const RECOVERY_HTML = `<!doctype html><html lang="zh-CN"><meta charset="u
 <p>此页只读，不启动、恢复或删除虚拟机。候选项需要人工复核；当前恢复点、原版基线和最近三个改进恢复点标记为建议保留。这些标记没有设置磁盘写保护。</p>
 <div class="cards"><div class="card"><span>上次读取的宿主可用空间</span><strong id="free">待核对</strong></div><div class="card"><span>磁盘快照 · 本次显示</span><strong id="snap-count">待核对</strong></div><div class="card"><span>归档镜像 · 本次显示</span><strong id="image-count">待核对</strong></div></div>
 <p id="status" role="status">正在读取本机清单…</p><p id="error" role="alert"></p>
-<section><h2>磁盘快照与恢复归档</h2><p class="note">归档摘要匹配仅表示归档文件校验通过；实际恢复与启动结果以各轮验收记录为准。</p><div class="scroll"><table><thead><tr><th>名称</th><th>磁盘 / 归档</th><th>保留建议</th><th>建立时间</th></tr></thead><tbody id="snapshots"></tbody></table></div><button id="more-snapshots" hidden>加载更多快照</button></section>
+<section><h2>磁盘快照与待确认记录</h2><p class="note">此处显示已观察到的快照及状态待确认的记录。归档摘要匹配仅表示文件校验通过，实际恢复与启动结果以各轮验收记录为准。</p><div class="scroll"><table><thead><tr><th>名称</th><th>磁盘 / 归档</th><th>保留建议</th><th>建立时间</th></tr></thead><tbody id="snapshots"></tbody></table></div><button id="more-snapshots" hidden>加载更多快照</button></section>
+<section><details><summary style="cursor:pointer;font-weight:600">历史恢复记录 · 本次显示 <span id="history-count">待核对</span> 项</summary><p class="note">这些记录在本次核对时没有对应磁盘快照。保留的校验资料不能单独用于恢复 VM；不计入上方磁盘快照数量。</p><div class="scroll"><table><thead><tr><th>名称</th><th>磁盘 / 归档</th><th>保留建议</th><th>建立时间</th></tr></thead><tbody id="history"></tbody></table></div></details></section>
 <section><h2>离线验收镜像</h2><p class="note">逻辑大小与分配块大小可能包含 APFS 共享数据，不能相加作为删除后可释放容量；本页不估算可回收空间。</p><div class="scroll"><table><thead><tr><th>归档内位置</th><th>逻辑大小</th><th>分配块大小</th><th>建议</th></tr></thead><tbody id="images"></tbody></table></div><button id="more" hidden>加载下一批</button><p class="note">按归档逐批读取，跳过辅助代码目录；目录变化后请刷新清单重新核对。</p></section></main>
 <script>
-const nodes=Object.fromEntries(['free','snap-count','image-count','status','error','snapshots','images','refresh','more','more-snapshots'].map(id=>[id,document.getElementById(id)]));let generation=0,active,nextCursor=null,nextSnapshotCursor=null,loadedRecovery=null;const images=new Map(),snapshots=new Map(),limits=new Set();let entriesScanned=0;const listState={snapshots:{at:null,failed:false,loaded:false,loading:false,state:'unavailable'},images:{at:null,failed:false,loaded:false,loading:false}};const snapshotLimits=new Set();
+const catalogLabels=${JSON.stringify(CATALOG_LABELS)};
+const failure=(code,requestId)=>Object.assign(Error('Catalog read failed'),{catalogCode:code,requestId});
+const safeId=value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)?value:null;
+const validScan=scan=>scan==null||typeof scan==='object'&&!Array.isArray(scan)&&['reasons','continuationReasons'].every(key=>scan[key]===undefined||Array.isArray(scan[key])&&scan[key].every(value=>typeof value==='string'))&&['entriesScanned','entriesRemaining','visitedDirectories','skippedMetadataDirectories'].every(key=>scan[key]==null||Number.isSafeInteger(scan[key])&&scan[key]>=0);
+const nodes=Object.fromEntries(['free','snap-count','history-count','image-count','status','error','snapshots','history','images','refresh','more','more-snapshots'].map(id=>[id,document.getElementById(id)]));let generation=0,active,nextCursor=null,nextSnapshotCursor=null,loadedRecovery=null;const images=new Map(),snapshots=new Map(),limits=new Set();let entriesScanned=0;const listState={snapshots:{at:null,failed:false,loaded:false,loading:false,state:'unavailable'},images:{at:null,failed:false,loaded:false,loading:false}};const snapshotLimits=new Set();
 const size=value=>Number.isSafeInteger(value)&&value>=0?(value/1073741824).toFixed(2)+' GiB':'未确认';
 const make=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el};
 const row=(target,values)=>{const tr=document.createElement('tr');for(const value of values)tr.appendChild(make('td',value));target.appendChild(tr)};
@@ -78,40 +85,47 @@ function listProgress(key,label,cursor,gap){
  return cursor?label+'已读取部分，可加载下一批':'本轮'+label+'批次已读取完';
 }
 function renderStatus(){
- const labels={'snapshot-limit':'快照条数上限','snapshot-name-limit':'部分快照名称超出公开长度限制','entry-limit':'归档条目上限','directory-entry-limit':'部分目录条目超出读取上限','depth-limit':'目录深度上限','read-error':'部分目录不可读','invalid-root':'归档目录不可读','unknown-limit':'部分结果未读取'};
+ const labels={'snapshot-limit':'快照条数上限','snapshot-name-limit':'部分快照名称无法公开显示','snapshot-invalid-record':'部分快照记录无效，数量未确认','image-invalid-record':'部分镜像记录无效，数量未确认','image-record-limit':'部分镜像记录超出显示上限','snapshot-unknown-limit':'部分快照记录未确认','entry-limit':'归档条目上限','directory-entry-limit':'部分目录条目超出读取上限','depth-limit':'目录深度上限','read-error':'部分目录不可读','invalid-root':'归档目录不可读','unknown-limit':'部分结果未读取'};
  const gaps=[...snapshotLimits,...limits];
- nodes.error.textContent=[listState.snapshots.failed?'快照读取失败，'+(listState.snapshots.loaded?'保留上次结果':'尚未取得清单')+'，请重试。':'',listState.images.failed?'归档读取失败，'+(listState.images.loaded?'保留上次结果':'尚未取得清单')+'，请重试。':''].filter(Boolean).join(' ');
+ nodes.error.textContent=[['snapshots','快照'],['images','归档']].map(([key,label])=>{const item=listState[key];return item.failed?label+'读取失败，'+(item.loaded?'保留上次结果':'尚未取得清单')+'，请重试。'+(catalogLabels[item.error?.code]||'')+(item.error?.requestId?'（编号：'+item.error.requestId+'）':''):''}).filter(Boolean).join(' ');
  nodes.status.textContent='快照核对：'+stamp(listState.snapshots.at)+' · 归档核对：'+stamp(listState.images.at)+' · 读取时的恢复入口：'+(loadedRecovery||'未确认')+' · '+listProgress('snapshots','快照',nextSnapshotCursor,snapshotLimits.size)+(listState.snapshots.loaded?' · 已显示 '+snapshots.size+' 项快照记录':'')+' · '+listProgress('images','归档',nextCursor,limits.size)+(listState.images.loaded?' · 归档条目读取 '+entriesScanned+' 次':'')+(gaps.length?' · 清单仍有缺口：'+gaps.map(reason=>labels[reason]||labels['unknown-limit']).join('、')+'。':'')+(listState.snapshots.loaded&&listState.snapshots.state==='unavailable'?' · 磁盘快照元数据暂不可读，不能据此判断快照不存在。':'');
 }
 async function refresh(kind='refresh'){
  const append=kind!=='refresh';
  if(kind==='images'&&!nextCursor||kind==='snapshots'&&!nextSnapshotCursor)return;
  const query=new URLSearchParams();
- if(kind==='images')query.set('after',nextCursor);if(kind==='snapshots')query.set('snapshotAfter',nextSnapshotCursor);
+ if(append)query.set('part',kind);if(kind==='images')query.set('after',nextCursor);if(kind==='snapshots')query.set('snapshotAfter',nextSnapshotCursor);
  const current=++generation;active?.abort();const controller=new AbortController();active=controller;nodes.refresh.disabled=nodes.more.disabled=nodes['more-snapshots'].disabled=true;listState.snapshots.loading=kind!=='images';listState.images.loading=kind!=='snapshots';renderStatus();
  const timer=setTimeout(()=>controller.abort(),11000);
- const aborted=new Promise((_resolve,reject)=>controller.signal.addEventListener('abort',()=>reject(Error('清单读取超时或已取消，请重试。')),{once:true}));
+ const aborted=new Promise((_resolve,reject)=>controller.signal.addEventListener('abort',()=>reject(failure('browser-timeout')),{once:true}));
+ let responseId;
  try{
-  const data=await Promise.race([fetch('/__harness/recoveries'+(query.size?'?'+query:''),{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal}).then(async response=>{if(!response.ok)throw Error('清单暂不可用，请确认本机入口和磁盘可读取后重试。');return response.json()}),aborted]);
+  const data=await Promise.race([fetch('/__harness/recoveries'+(query.size?'?'+query:''),{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal}).then(async response=>{responseId=safeId(response.headers?.get?.('x-harness-request-id'));let value;try{value=await response.json()}catch{throw failure('invalid-json',responseId)}if(!response.ok)throw failure(Object.hasOwn(catalogLabels,value?.diagnostic?.code)?value.diagnostic.code:'http-error',safeId(value?.diagnostic?.requestId)||responseId);return value}),aborted]);
   if(current!==generation)return;
-  if(append&&loadedRecovery!==data.currentRecovery)throw Error('恢复入口已变化，请刷新清单重新读取。');
+  if(!data||data.readOnly!==true||typeof data.currentRecovery!=='string'||!validScan(data.archiveScan)||['nextCursor','nextSnapshotCursor'].some(key=>data[key]!=null&&typeof data[key]!=='string')||kind!=='snapshots'&&(!Array.isArray(data.images)||data.images.some(item=>!item||typeof item.id!=='string'))||kind!=='images'&&(!Array.isArray(data.snapshots)||data.snapshots.some(item=>!item||typeof item.name!=='string')||!['observed','unavailable'].includes(data.snapshotState)))throw failure('invalid-catalog',responseId);
+  if(append&&loadedRecovery!==data.currentRecovery)throw failure('catalog-changed');
   if(!append){images.clear();snapshots.clear();limits.clear();snapshotLimits.clear();entriesScanned=0;listState.snapshots.failed=listState.images.failed=false;}
   loadedRecovery=data.currentRecovery;
   if(kind!=='snapshots'){
    nextCursor=data.nextCursor??null;for(const item of data.images)images.set(item.id,item);
    const reasons=data.archiveScan?.reasons??[];for(const reason of reasons)if(!reason.startsWith('snapshot-')&&!['directory-limit','image-limit','time-limit'].includes(reason))limits.add(reason);if(data.truncated&&!reasons.length)limits.add('unknown-limit');
-   listState.images.at=data.observedAt;listState.images.failed=false;listState.images.loaded=true;nodes.free.textContent=size(data.storage?.freeBytes);
+   listState.images.at=data.observedAt;listState.images.failed=false;listState.images.error=null;listState.images.loaded=true;nodes.free.textContent=size(data.storage?.freeBytes);
    entriesScanned+=data.archiveScan?.entriesScanned??0;
   }
-  if(kind!=='images'){nextSnapshotCursor=data.nextSnapshotCursor??null;for(const item of data.snapshots)snapshots.set(item.name,item);listState.snapshots.at=data.observedAt;listState.snapshots.failed=false;listState.snapshots.loaded=true;listState.snapshots.state=data.snapshotState==='unavailable'||[...snapshots.values()].some(item=>item.present===null)?'unavailable':'observed';for(const reason of data.archiveScan?.reasons??[])if(reason.startsWith('snapshot-'))snapshotLimits.add(reason);}
-  nodes['snap-count'].textContent=listState.snapshots.state==='observed'?String([...snapshots.values()].filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=String(images.size);
-  nodes.snapshots.replaceChildren();nodes.images.replaceChildren();
+  if(kind!=='images'){
+   nextSnapshotCursor=data.nextSnapshotCursor??null;for(const item of data.snapshots)snapshots.set(item.name,item);
+   listState.snapshots.at=data.observedAt;listState.snapshots.failed=false;listState.snapshots.error=null;listState.snapshots.loaded=true;listState.snapshots.state=data.snapshotState==='unavailable'||[...snapshots.values()].some(item=>item.present===null)?'unavailable':'observed';
+   const reasons=data.archiveScan?.reasons??[];for(const reason of reasons)if(reason.startsWith('snapshot-')||reason==='unknown-limit'||kind==='snapshots')snapshotLimits.add(reason);
+   if(data.truncated&&!reasons.length)snapshotLimits.add('snapshot-unknown-limit');
+  }
+  nodes['snap-count'].textContent=listState.snapshots.state==='observed'&&!snapshotLimits.has('snapshot-invalid-record')&&!snapshotLimits.has('snapshot-name-limit')?String([...snapshots.values()].filter(item=>item.present).length):'未确认';nodes['image-count'].textContent=limits.has('image-invalid-record')?'未确认':String(images.size);nodes['history-count'].textContent=String([...snapshots.values()].filter(item=>item.present===false).length);
+  nodes.snapshots.replaceChildren();nodes.history.replaceChildren();nodes.images.replaceChildren();
   const bundle={verified:'归档摘要匹配',missing:'未建立归档',invalid:'归档校验失败','not-reviewed':'非改进版归档'};
-  for(const item of snapshots.values())row(nodes.snapshots,[item.name+(item.current?' · 读取时的恢复入口':''),(item.present===true?'快照已存在':item.present===false?'快照未建立':'快照未确认')+' / '+(bundle[item.bundleState]||'归档未确认'),item.protected?'建议保留':item.reviewCandidate?'人工复核候选':'待核对',item.createdAt?new Date(item.createdAt).toLocaleString('zh-CN'):'无归档时间']);
+  for(const item of snapshots.values())row(item.present===false?nodes.history:nodes.snapshots,[item.name+(item.current?' · 读取时的恢复入口':''),(item.present===true?'快照已存在':item.present===false?'无对应磁盘快照':'快照未确认')+' / '+(bundle[item.bundleState]||'归档未确认'),item.protected?'建议保留':item.reviewCandidate?'人工复核候选':'待核对',item.createdAt?new Date(item.createdAt).toLocaleString('zh-CN'):'无归档时间']);
   for(const item of images.values())row(nodes.images,[item.id,size(item.logicalBytes),size(item.allocatedBytes),'人工复核候选']);
   if(!images.size)row(nodes.images,['本次扫描范围内没有可显示镜像','','','']);
   nodes.more.hidden=!nextCursor;nodes['more-snapshots'].hidden=!nextSnapshotCursor;renderStatus();
- }catch(error){if(current===generation){if(kind!=='images')listState.snapshots.failed=true;if(kind!=='snapshots')listState.images.failed=true;renderStatus();}}
+ }catch(error){if(current===generation){const detail={code:Object.hasOwn(catalogLabels,error?.catalogCode)?error.catalogCode:error?.name==='TypeError'?'connection-failed':'catalog-unavailable',requestId:safeId(error?.requestId)||responseId};for(const key of ['snapshots','images'])if(kind==='refresh'||kind===key){listState[key].failed=true;listState[key].error=detail}renderStatus();}}
  finally{clearTimeout(timer);if(current===generation){nodes.refresh.disabled=nodes.more.disabled=nodes['more-snapshots'].disabled=false;active=undefined;listState.snapshots.loading=listState.images.loading=false;renderStatus()}}
 }
 nodes.refresh.addEventListener('click',()=>refresh());nodes.more.addEventListener('click',()=>refresh('images'));nodes['more-snapshots'].addEventListener('click',()=>refresh('snapshots'));refresh();
@@ -399,6 +413,7 @@ export function createDiagnostics() {
   const category = url => {
     const route = String(url).split('?', 1)[0]
     if (route === '/') return 'index'
+    if (route === '/__harness/recoveries') return 'recovery'
     for (const [prefix, name] of [['/assets/', 'assets'], ['/plugins/', 'assets'], ['/api/', 'api'], ['/redteam/', 'redteam'], ['/dsh-purge/', 'purge']]) {
       if (route.startsWith(prefix)) return name
     }
@@ -423,6 +438,10 @@ export function createDiagnostics() {
       observe('transport',{ state: error ? item.state : 'ok', responseMs: item.responseMs })
       recent.push(item)
       if (recent.length > 100) recent.shift()
+    },
+    catalog(request,status,detail) {
+      const item={eventId:++eventId,observedAt:new Date().toISOString(),category:'recovery',method:'GET',state:detail.code?(detail.code==='catalog-timeout'?'timeout':'http-error'):'ok',status,responseMs:Math.round(performance.now()-request.started),...detail};
+      observe('recovery',item);recent.push(item);if(recent.length>100)recent.shift();
     },
     stream(kind, socket) {
       active[kind]++

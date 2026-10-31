@@ -7,30 +7,66 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createDiagnostics, HEALTH_HTML, ENVIRONMENT_BANNER, RECOVERY_HTML } from './web-health.mjs'
 
 const executeFile = promisify(execFile)
+export function createClockMonitor({run=()=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'clock-maintain'],{timeout:20000,maxBuffer:8192}),schedule=callback=>setInterval(callback,60000),unschedule=clearInterval,observe=()=>{}}={}) {
+  let stopped=false,pending=false
+  const tick=async()=>{
+    if(stopped||pending)return
+    pending=true
+    try{
+      const value=JSON.parse((await run()).stdout)
+      if(!['current','adjusted','skipped'].includes(value?.state))throw Error('Invalid clock result')
+      if(!stopped)observe({state:value.state,adjusted:value.adjusted===true,...(Number.isFinite(value.offsetSeconds)?{offsetSeconds:value.offsetSeconds}:{})})
+    }catch(error){if(!stopped)observe({state:'unavailable',failure:typeof error?.stderr==='string'&&error.stderr.includes('.vm-operation.lock')&&error.stderr.includes('Operation not permitted')?'vm-lock-denied':typeof error?.stderr==='string'&&error.stderr.includes('utmctl')?'vm-controller-unavailable':'clock-command-failed',...(Number.isInteger(error?.code)?{exitCode:error.code}:{})})}
+    finally{pending=false}
+  }
+  const timer=schedule(tick);timer?.unref?.()
+  return()=>{stopped=true;unschedule(timer)}
+}
 const publicCursor=value=>typeof value==='string'&&value.length<=240&&(value===''||/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(value)&&!/credential|secret|token|provider/i.test(value));
 const archiveCursor=value=>publicCursor(value)||typeof value==='string'&&value.length<=4096&&/^v1:[A-Za-z0-9_-]+$/.test(value);
-export function createRecoveryReader({run=(after,snapshotAfter)=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'recoveries',...(after?['--archive-after',after]:[]),...(snapshotAfter?['--snapshot-after',snapshotAfter]:[])],{timeout:9000,maxBuffer:131072}),now=()=>performance.now(),wallNow=Date.now}={}) {
+const catalogParts=new Set(['all','snapshots','images']);
+const catalogError=(code,phase,details={})=>Object.assign(Error('Recovery catalog unavailable'),{catalogCode:code,catalogPhase:phase,...details});
+function controllerError(error){
+  const details={};
+  if(Number.isInteger(error?.code)&&error.code>=0&&error.code<=255)details.exitCode=error.code;
+  if(['SIGTERM','SIGKILL','SIGINT','SIGABRT'].includes(error?.signal))details.signal=error.signal;
+  const code=error?.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER'?'output-limit':error?.killed?'controller-terminated':['ENOENT','EACCES'].includes(error?.code)?'controller-unavailable':'controller-failed';
+  return catalogError(code,'controller',details);
+}
+export function createRecoveryReader({run=(after,snapshotAfter,part)=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'recoveries','--catalog-part',part,...(after?['--archive-after',after]:[]),...(snapshotAfter?['--snapshot-after',snapshotAfter]:[])],{timeout:9000,maxBuffer:131072}),now=()=>performance.now(),wallNow=Date.now}={}) {
   const pending=new Map(),cache=new Map()
   const name=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,240}$/.test(value)&&!value.split('/').some(part=>!part||part==='.'||part==='..'||part.startsWith('.')||/credential|secret|token|provider/i.test(part))
   const number=value=>Number.isSafeInteger(value)&&value>=0?value:null
   const date=value=>typeof value==='string'&&/^[0-9T:Z.+-]{1,40}$/.test(value)&&Number.isFinite(Date.parse(value))?value:null
-  return (after='',snapshotAfter='')=>{
-    if(!archiveCursor(after)||!publicCursor(snapshotAfter))return Promise.reject(Error('Invalid recovery cursor'))
-    const key=JSON.stringify([after,snapshotAfter]),saved=cache.get(key)
+  return (after='',snapshotAfter='',part='all')=>{
+    if(!catalogParts.has(part)||!archiveCursor(after)||!publicCursor(snapshotAfter)||part==='images'&&snapshotAfter||part==='snapshots'&&after)return Promise.reject(Error('Invalid recovery cursor'))
+    const key=JSON.stringify([after,snapshotAfter,part]),saved=cache.get(key)
     if(saved&&now()-saved.mono>=0&&wallNow()-saved.wall>=0&&now()-saved.mono<5000&&wallNow()-saved.wall<5000)return Promise.resolve(saved.value)
     if(pending.has(key))return pending.get(key)
-    if(pending.size>=4)return Promise.reject(Error('Catalog busy'))
-    const request=Promise.resolve().then(()=>run(after,snapshotAfter)).then(result=>{
-      const value=JSON.parse(result.stdout)
-      if(value.readOnly!==true||!name(value.currentRecovery)||!['observed','unavailable'].includes(value.snapshotState))throw Error('Invalid recovery catalog')
-      const snapshots=(Array.isArray(value.snapshots)?value.snapshots:[]).filter(row=>row&&name(row.name)&&!row.name.includes('/')).slice(0,80).map(row=>({name:row.name,present:typeof row.present==='boolean'?row.present:null,current:row.current===true,protected:row.protected===true,reviewCandidate:row.reviewCandidate===true&&!row.protected&&row.present===true,bundleState:['verified','missing','invalid','not-reviewed'].includes(row.bundleState)?row.bundleState:'unknown',createdAt:date(row.createdAt)}))
-      const images=(Array.isArray(value.images)?value.images:[]).filter(row=>row&&name(row.id)&&row.id.endsWith('.qcow2')).slice(0,80).map(row=>({id:row.id,logicalBytes:number(row.logicalBytes),allocatedBytes:number(row.allocatedBytes),reviewCandidate:row.reviewCandidate===true}))
-      const nextCursor=value.nextCursor??null
-      if(nextCursor!==null&&(!archiveCursor(nextCursor)||nextCursor===after||publicCursor(nextCursor)&&publicCursor(after)&&nextCursor<=after))throw Error('Invalid next archive cursor')
-      const nextSnapshotCursor=value.nextSnapshotCursor??null
-      if(nextSnapshotCursor!==null&&(!publicCursor(nextSnapshotCursor)||nextSnapshotCursor<=snapshotAfter))throw Error('Invalid next snapshot cursor')
-      const scan=value.archiveScan,archiveScan=scan?{...Object.fromEntries(['entriesScanned','entriesRemaining','visitedDirectories','skippedMetadataDirectories'].map(key=>[key,number(scan[key])])),reasons:[...new Set((Array.isArray(scan.reasons)?scan.reasons:[]).filter(reason=>['snapshot-limit','snapshot-name-limit','entry-limit','directory-entry-limit','depth-limit','read-error','invalid-root'].includes(reason)))],continuationReasons:[...new Set((Array.isArray(scan.continuationReasons)?scan.continuationReasons:[]).filter(reason=>['directory-limit','image-limit','time-limit'].includes(reason)))]}:null
-      const cached={nextCursor,nextSnapshotCursor,archiveScan,readOnly:true,currentRecovery:value.currentRecovery,observedAt:date(value.observedAt),snapshotState:value.snapshotState,snapshots,images,storage:Object.fromEntries(['freeBytes','totalBytes','primaryLogicalBytes','primaryAllocatedBytes'].map(key=>[key,number(value.storage?.[key])])),truncated:value.truncated===true||value.snapshots?.length>80||value.images?.length>80}
+    if(pending.size>=4)return Promise.reject(catalogError('catalog-busy','queue'))
+    const request=Promise.resolve().then(()=>run(after,snapshotAfter,part)).catch(error=>{throw controllerError(error)}).then(result=>{
+      let value;try{value=JSON.parse(result.stdout)}catch{throw catalogError('invalid-json','parse')}
+      const wantsSnapshots=part!=='images',wantsImages=part!=='snapshots';
+      if(!value||value.readOnly!==true||!name(value.currentRecovery)||value.part!==undefined&&value.part!==part||wantsSnapshots&&(!Array.isArray(value.snapshots)||!['observed','unavailable'].includes(value.snapshotState))||wantsImages&&!Array.isArray(value.images))throw catalogError('invalid-catalog','validate')
+      const validSnapshots=wantsSnapshots?value.snapshots.filter(row=>row&&name(row.name)&&!row.name.includes('/')):[];
+      const validImages=wantsImages?value.images.filter(row=>row&&name(row.id)&&row.id.endsWith('.qcow2')):[];
+      const snapshots=validSnapshots.slice(0,80).map(row=>({name:row.name,present:typeof row.present==='boolean'?row.present:null,current:row.current===true,protected:row.protected===true,reviewCandidate:row.reviewCandidate===true&&!row.protected&&row.present===true,bundleState:['verified','missing','invalid','not-reviewed'].includes(row.bundleState)?row.bundleState:'unknown',createdAt:date(row.createdAt)}))
+      const images=validImages.slice(0,80).map(row=>({id:row.id,logicalBytes:number(row.logicalBytes),allocatedBytes:number(row.allocatedBytes),reviewCandidate:row.reviewCandidate===true}))
+      const nextCursor=wantsImages?value.nextCursor??null:null
+      if(nextCursor!==null&&(!archiveCursor(nextCursor)||nextCursor===after||publicCursor(nextCursor)&&publicCursor(after)&&nextCursor<=after))throw Object.assign(Error('Invalid next archive cursor'),{catalogCode:'invalid-catalog',catalogPhase:'validate'})
+      const nextSnapshotCursor=wantsSnapshots?value.nextSnapshotCursor??null:null
+      if(nextSnapshotCursor!==null&&(!publicCursor(nextSnapshotCursor)||nextSnapshotCursor<=snapshotAfter))throw Object.assign(Error('Invalid next snapshot cursor'),{catalogCode:'invalid-catalog',catalogPhase:'validate'})
+      const scan=value.archiveScan,reasons=new Set();
+      if(scan!=null&&(typeof scan!=='object'||Array.isArray(scan)||['reasons','continuationReasons'].some(key=>scan[key]!==undefined&&!Array.isArray(scan[key]))))throw catalogError('invalid-catalog','validate');
+      for(const reason of Array.isArray(scan?.reasons)?scan.reasons:[])reasons.add(['snapshot-limit','snapshot-name-limit','entry-limit','directory-entry-limit','depth-limit','read-error','invalid-root'].includes(reason)?reason:'unknown-limit');
+      if(wantsSnapshots&&validSnapshots.length!==value.snapshots.length)reasons.add('snapshot-invalid-record');
+      if(wantsImages&&validImages.length!==value.images.length)reasons.add('image-invalid-record');
+      if(validSnapshots.length>80)reasons.add('snapshot-limit');
+      if(validImages.length>80)reasons.add('image-record-limit');
+      const archiveScan={...Object.fromEntries(['entriesScanned','entriesRemaining','visitedDirectories','skippedMetadataDirectories'].map(key=>[key,number(scan?.[key])])),reasons:[...reasons],continuationReasons:[...new Set((Array.isArray(scan?.continuationReasons)?scan.continuationReasons:[]).filter(reason=>['directory-limit','image-limit','time-limit'].includes(reason)))]};
+      const cached={part,archiveScan,readOnly:true,currentRecovery:value.currentRecovery,observedAt:date(value.observedAt),truncated:value.truncated===true||reasons.size>0||validSnapshots.length>80||validImages.length>80,
+        ...(wantsSnapshots?{nextSnapshotCursor,snapshotState:value.snapshotState,snapshots}:{}),
+        ...(wantsImages?{nextCursor,images,storage:Object.fromEntries(['freeBytes','totalBytes','primaryLogicalBytes','primaryAllocatedBytes'].map(key=>[key,number(value.storage?.[key])]))}:{})};
       cache.delete(key);cache.set(key,{value:cached,mono:now(),wall:wallNow()});if(cache.size>8)cache.delete(cache.keys().next().value);return cached
     }).finally(()=>{pending.delete(key)})
     pending.set(key,request);return request
@@ -268,15 +304,24 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
       if(req.method!=='GET'){res.writeHead(405);res.end();return}
       const json=recoveryPath.endsWith('/recoveries')
       if(req.headers['sec-fetch-site']==='cross-site'||json&&req.headers['x-harness-local']!=='1'){res.writeHead(403);res.end();return}
-      const query=new URL(req.url,entryOrigin()).searchParams,after=query.get('after')??'',snapshotAfter=query.get('snapshotAfter')??''
-      if([...query.keys()].some(key=>!['after','snapshotAfter'].includes(key))||['after','snapshotAfter'].some(key=>query.getAll(key).length>1)||!archiveCursor(after)||!publicCursor(snapshotAfter)||!json&&query.size){res.writeHead(400);res.end();return}
+      const query=new URL(req.url,entryOrigin()).searchParams,after=query.get('after')??'',snapshotAfter=query.get('snapshotAfter')??'',part=query.get('part')??'all'
+      if([...query.keys()].some(key=>!['after','snapshotAfter','part'].includes(key))||['after','snapshotAfter','part'].some(key=>query.getAll(key).length>1)||!archiveCursor(after)||!publicCursor(snapshotAfter)||!catalogParts.has(part)||part==='images'&&snapshotAfter||part==='snapshots'&&after||!json&&query.size){res.writeHead(400);res.end();return}
       const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':json?'application/json; charset=utf-8':'text/html; charset=utf-8'}
       if(!json){res.writeHead(200,headers);res.end(RECOVERY_HTML);return}
-      let timer
+      let timer;const requestId=randomUUID(),observation=diagnostics.begin('/__harness/recoveries','GET');headers['x-harness-request-id']=requestId;
       try{
-        const value=await Promise.race([recoveryReader(after,snapshotAfter),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('Catalog deadline')),10000)})])
+        const value=await Promise.race([recoveryReader(after,snapshotAfter,...(part==='all'?[]:[part])),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(catalogError('catalog-timeout','deadline')),10000)})])
+        diagnostics.catalog(observation,200,{requestId,part,phase:'complete'});
         if(!res.destroyed){res.writeHead(200,headers);res.end(JSON.stringify(value))}
-      }catch{if(!res.destroyed){res.writeHead(503,headers);res.end('{"error":"Recovery catalog unavailable"}')}}
+      }catch(error){
+        const code=['catalog-timeout','catalog-busy','output-limit','controller-terminated','controller-unavailable','controller-failed','invalid-json','invalid-catalog'].includes(error?.catalogCode)?error.catalogCode:'catalog-unavailable';
+        const phase=['queue','controller','parse','validate','deadline'].includes(error?.catalogPhase)?error.catalogPhase:'reader';
+        const detail={requestId,part,code,phase};
+        if(Number.isInteger(error?.exitCode)&&error.exitCode>=0&&error.exitCode<=255)detail.exitCode=error.exitCode;
+        if(['SIGTERM','SIGKILL','SIGINT','SIGABRT'].includes(error?.signal))detail.signal=error.signal;
+        diagnostics.catalog(observation,503,detail);
+        if(!res.destroyed){res.writeHead(503,headers);res.end(JSON.stringify({error:'Recovery catalog unavailable',diagnostic:detail}))}
+      }
       finally{clearTimeout(timer)}
       return
     }
@@ -343,7 +388,8 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const server = createWebEntry()
+  const stopClock=createClockMonitor({observe:value=>{if(value.state==='adjusted'||value.state==='unavailable')console.log('VM clock maintenance:',JSON.stringify(value))}})
   server.on('error', error => { console.error('Local web entry stopped:', error.code || 'unknown'); process.exitCode = 1 })
   server.listen({ host: '127.0.0.1', port: 49226, backlog: 128 })
-  for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => server.shutdown())
+  for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {stopClock();server.shutdown()})
 }

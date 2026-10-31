@@ -23,6 +23,7 @@ import { request as httpsRequest } from 'node:https'
 import { dispatch, dispatchAsync } from './store-core.js'
 import { authorizeOwnerRequest } from '../personal-http-auth.mjs'
 import { handleToolchainOp } from './personal-toolchain-status.mjs'
+import { handleSecurityOp } from './personal-security-workbench.mjs'
 /* 技能可用性判定与 redteam_preflight 共用同一份实现（环境变量 / 本机路径 / 占位符） */
 import { checkSkill, officialSkillSummaries, skillLibraryOf, summarizeSkills } from './skill-availability.js'
 import { configuredLimit, maxAgentsOf, maxAgentsSourceOf, saveMaxAgents, DEFAULT_MAX_AGENTS, MAX_AGENTS_LIMIT } from './settings.js'
@@ -1138,6 +1139,8 @@ export function apply(ctx) {
           } finally { res.removeListener?.('close', disconnected) }
           return
         }
+        const securityResult = await handleSecurityOp(store, request)
+        if (securityResult !== undefined) { sendJson(res, 200, securityResult); return }
         if (request.op === 'sessionBinding') { sendJson(res, 200, sessionBindingStatus(ctx, request.sessionId)); return }
         const platformResult = handlePlatformOp(store, request)
         if (platformResult !== undefined) {

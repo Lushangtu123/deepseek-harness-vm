@@ -13,6 +13,6 @@
       name: dsh-purge/redteam/ui
     - id: dsh-purge-personal-tools
       name: dsh-purge/redteam/tools
-      inject: [tools]
+      inject: [tools, redteam]
     - id: dsh-purge-personal-redteam
       name: dsh-purge/personal-redteam
