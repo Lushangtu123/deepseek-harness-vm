@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import {createSecurityTab} from '../package/lib/redteam/personal-security-client.mjs'
 const flush=()=>new Promise(setImmediate);
 const memoryStorage=()=>{const values=new Map();return{get length(){return values.size},key:index=>[...values.keys()][index]??null,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)}};
-function host(api,{storage=memoryStorage()}={}){
+const memoryLocks=()=>{const held=new Set();return{async request(name,options,run){assert.deepEqual(options,{mode:'exclusive',ifAvailable:true});if(held.has(name))return run(null);held.add(name);try{return await run({name,mode:'exclusive'})}finally{held.delete(name)}}}};
+const eventHub=()=>{const listeners=new Map();return{addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn)},removeEventListener(type,fn){listeners.get(type)?.delete(fn)},emit(type,event={}){for(const fn of listeners.get(type)??[])fn(event)},get count(){return[...listeners.values()].reduce((n,rows)=>n+rows.size,0)}}};
+function host(api,{storage=memoryStorage(),locks=memoryLocks(),events=null}={}){
  let cells=[],index=0,pending=[],dirty=false,tree,props={engagement:'a',refreshKey:0},unmounted=false,late=0;
  const React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(v=>v!==false&&v!==null&&v!==undefined)}),useState(initial){const at=index++;if(!cells[at])cells[at]={value:typeof initial==='function'?initial():initial};return[cells[at].value,value=>{if(unmounted){late++;return}cells[at].value=typeof value==='function'?value(cells[at].value):value;dirty=true}]},useRef(initial){const at=index++;return cells[at]||(cells[at]={current:initial})},useEffect(effect,deps){const at=index++,previous=cells[at];if(!previous||deps.some((value,i)=>value!==previous.deps[i]))pending.push(()=>{previous?.cleanup?.();cells[at]={deps,cleanup:effect()}})}};
- const Component=createSecurityTab(React,api,{storage});
+ const Component=createSecurityTab(React,api,{storage,locks,events});
  const render=(next=props)=>{props=next;for(let n=0;n<10;n++){dirty=false;index=0;tree=Component(props);const effects=pending;pending=[];effects.forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled hooks')};
  return{render,unmount(){unmounted=true;cells.forEach(row=>row.cleanup?.())},get late(){return late}};
 }
@@ -14,6 +16,56 @@ const text=n=>typeof n==='string'||typeof n==='number'?String(n):(n?.children||[
 const nodes=n=>n&&typeof n==='object'?[n,...(n.children||[]).flatMap(nodes)]:[];
 const btn=(tree,label)=>{const result=nodes(tree).find(n=>n.type==='button'&&text(n)===label);assert.ok(result,'Missing '+label);return result};
 const state=(engagement='a')=>({ok:true,engagement,profile:{revision:1,repoRoot:'/home/purge/workspace/test',url:null,expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy']},tools:{semgrep:{ready:true,version:'test'},trivy:{ready:true,version:'test'},zap:{ready:false}},runs:[],findings:[],observedAt:new Date().toISOString()});
+test('Two pages cannot retry the same pending operation concurrently or queue a later replay',async()=>{
+ const storage=memoryStorage(),locks=memoryLocks(),writes=[];let finish;
+ const api=async request=>{if(request.op==='securityStart'){writes.push(structuredClone(request));return new Promise(resolve=>{finish=resolve})}return state(request.engagement)};
+ const a=host(api,{storage,locks}),b=host(api,{storage,locks});let first,second;
+ try{
+  a.render();await flush();first=btn(a.render(),'开始检查').props.onClick();await flush();b.render();await flush();second=btn(b.render(),'重试同一请求').props.onClick();await flush();
+  const during=writes.length;finish({ok:true,run:{id:'one-synthetic-run',state:'completed'}});
+  // A second pre-fix call would overwrite finish and leave the first unresolved;
+  // fail before awaiting either call so the RED control cannot hang the runner.
+  assert.equal(during,1,'Only the lock holder may send; the other page must not queue');
+  await Promise.all([first,second]);await flush();assert.equal(writes.length,1);assert.equal(storage.length,0);assert.match(text(b.render()),/窗口|协调/);
+ }finally{a.unmount();b.unmount()}
+});
+test('Storage notifications refresh the other page without replay or losing its draft',async()=>{
+ const storage=memoryStorage(),locks=memoryLocks(),events=eventHub(),writes=[];let finish,revision=1,reads=0;
+ const api=async request=>{if(request.op==='securityStart'){writes.push(request);return new Promise(resolve=>{finish=resolve})}reads++;return{...state(request.engagement),profile:{...state().profile,revision}}};
+ const a=host(api,{storage,locks}),b=host(api,{storage,locks,events});
+ try{
+  a.render();b.render();await flush();let tree=b.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/unsaved-window-b'}});b.render();
+  const start=btn(a.render(),'开始检查').props.onClick();await flush();events.emit('storage',{key:'dsh-security-request-v1:a',storageArea:storage});await flush();tree=b.render();
+  assert.match(text(tree),new RegExp(writes[0].requestId));assert.ok(btn(tree,'重试同一请求'));assert.ok(nodes(tree).some(n=>n.props.value==='/home/purge/workspace/unsaved-window-b'));
+  revision=2;finish({ok:true,run:{id:'one-synthetic-run',state:'completed'}});await start;events.emit('storage',{key:'dsh-security-request-v1:a',storageArea:storage});await flush();tree=b.render();
+  assert.ok(!nodes(tree).some(n=>n.type==='button'&&text(n)==='重试同一请求'));assert.match(text(tree),/当前版本 2/);assert.ok(btn(tree,'采用最新范围（丢弃本地草稿）'));assert.ok(nodes(tree).some(n=>n.props.value==='/home/purge/workspace/unsaved-window-b'));assert.equal(writes.length,1);
+  const before=reads;events.emit('storage',{key:'dsh-security-request-v1:another',storageArea:storage});await flush();assert.equal(reads,before);
+ }finally{a.unmount();b.unmount();assert.equal(events.count,0)}
+});
+test('Explicit recovery of another page scope request keeps the local unsaved scope draft',async()=>{
+ const storage=memoryStorage(),locks=memoryLocks();let request,saved=false;
+ const api=async input=>{
+  if(input.op==='securityScopeSave'){if(!request){request=structuredClone(input);saved=true;throw Error('lost reply')}assert.deepEqual(input,request);return{ok:true,profile:{...state().profile,revision:2,expiresAt:request.expiresAt}}}
+  return{...state(input.engagement),profile:{...state().profile,revision:saved?2:1}};
+ };
+ const a=host(api,{storage,locks}),b=host(api,{storage,locks});try{
+  a.render();b.render();await flush();let tree=b.render();nodes(tree).find(n=>n.type==='input'&&n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/local-draft-b'}});b.render();
+  tree=a.render();nodes(nodes(tree).find(n=>n.type==='label'&&text(n).includes('我确认上述目录'))).find(n=>n.type==='input').props.onChange({target:{checked:true}});await btn(a.render(),'保存范围').props.onClick();await btn(b.render(),'刷新').props.onClick();await btn(b.render(),'重试同一请求').props.onClick();tree=b.render();
+  assert.equal(storage.length,0);assert.ok(nodes(tree).some(n=>n.props.value==='/home/purge/workspace/local-draft-b'));assert.ok(btn(tree,'采用最新范围（丢弃本地草稿）'));assert.match(text(tree),/当前版本 2/);
+ }finally{a.unmount();b.unmount()}
+});
+test('Another page cannot discard an active request, and a rejected lock never exposes platform errors',async()=>{
+ const storage=memoryStorage(),locks=memoryLocks();let finish;
+ const api=async request=>request.op==='securityStart'?new Promise(resolve=>{finish=resolve}):state(request.engagement);
+ const a=host(api,{storage,locks}),b=host(api,{storage,locks});
+ try{
+  a.render();await flush();const writing=btn(a.render(),'开始检查').props.onClick();await flush();b.render();await flush();let tree=b.render();nodes(tree).find(n=>n.props['aria-label']==='确认清除恢复提示').props.onChange({target:{checked:true}});tree=b.render();await btn(tree,'仅清除恢复提示').props.onClick();const remaining=storage.length;finish({ok:true,run:{id:'one-synthetic-run',state:'completed'}});await writing;
+  assert.equal(remaining,1,'Clearing must acquire the same lock as sending');assert.equal(storage.length,0);
+ }finally{a.unmount();b.unmount()}
+ for(const locks of [null,{request:()=>Promise.reject(Error('PRIVATE_PLATFORM_ERROR'))}]){
+  const writes=[],h=host(async request=>{if(request.op!=='securityStatus')writes.push(request);return state(request.engagement)},{locks});try{h.render();await flush();assert.equal(btn(h.render(),'开始检查').props.disabled,locks===null);await btn(h.render(),'开始检查').props.onClick();assert.equal(writes.length,0);assert.equal(btn(h.render(),'开始检查').props.disabled,true);assert.match(text(h.render()),/多窗口协调/);assert.doesNotMatch(text(h.render()),/PRIVATE_PLATFORM_ERROR/)}finally{h.unmount()}
+ }
+});
 test('A full remount restores an uncertain request without replay and explicitly retries identical content',async()=>{
  const storage=memoryStorage(),starts=[];let uncertain=true;
  const api=async request=>{if(request.op==='securityStart'){starts.push(structuredClone(request));if(uncertain)throw Error('reply lost');return{ok:true,run:{id:'saved-run',state:'running'}}}return state(request.engagement)};

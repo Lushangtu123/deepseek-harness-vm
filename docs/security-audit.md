@@ -1,8 +1,10 @@
 # VM 安全审计工作台
 
+> 当前版本、恢复点和完成状态统一见[当前状态](current-status.md)。本文的历史验收段落只描述当时结果。
+
 2026-10-29，安装在现有改进版中，保留 personal.2 包版本。打开日常入口，进入演练台的 **安全审计** 页。现有 REA、reverse-skill、PentAGI 和原版能力继续使用原来的入口。
 
-当前运行126项插件程序，当前恢复点`ready-security-background-20261029`；后台审计与自动校时已验收，见[操作说明](background-audits-clock.md)及[验收](security-background-verification.json)。其余历史阶段按当时数量与生命周期解释。
+该阶段运行126项插件程序，该阶段恢复点`ready-security-background-20261029`；后台审计与自动校时已验收，见[操作说明](background-audits-clock.md)及[验收](security-background-verification.json)。其余历史阶段按当时数量与生命周期解释。
 
 ## 使用
 
@@ -44,7 +46,7 @@
 
 5个新增回归先失败后修复，包括20001条发现的全量计数、范围变化后的历史版本、空/旧/未完整任务、字面文本与脱敏，以及缺网址和明确空网址的区别。最终389项插件回归通过，独立只读复核没有Important/Critical发现。真实owner接口与浏览器下载当前合成项目3条待验证发现、2次完整任务，记录版本一致；下载与接口正文除生成时间外相同。未登录401、异源403。第一次HTTP验收在SSH取登录入口时退出255，随后只读连接和重试成功，原因未确定；保留失败记录，不归因为报告故障。
 
-当前122项程序与VM摘要一致，运行资源预检通过；本轮没有新扫描、模型调用、数据库结构或权限变更。安装前备份为`/home/purge/downloads/security-report-20261030T024230Z`，末次旧网址显示修正前备份为`/home/purge/downloads/security-report-legacy-20261030T024743Z`。整机恢复点仍不含本轮更新。使用SQLite接口依据[SELECT](https://www.sqlite.org/lang_select.html)和[SAVEPOINT](https://www.sqlite.org/lang_savepoint.html)。结构化记录见[security-report-verification.json](security-report-verification.json)。
+该阶段122项程序与VM摘要一致，运行资源预检通过；本轮没有新扫描、模型调用、数据库结构或权限变更。安装前备份为`/home/purge/downloads/security-report-20261030T024230Z`，末次旧网址显示修正前备份为`/home/purge/downloads/security-report-legacy-20261030T024743Z`。整机恢复点仍不含本轮更新。使用SQLite接口依据[SELECT](https://www.sqlite.org/lang_select.html)和[SAVEPOINT](https://www.sqlite.org/lang_savepoint.html)。结构化记录见[security-report-verification.json](security-report-verification.json)。
 
 ## 报告下载保护
 
@@ -71,7 +73,7 @@
 
 2026-10-29（America/Los_Angeles）：380项插件回归通过；独立复核18项聚焦测试重复覆盖，不累计。真实固定Semgrep对自有合成文件运行两次，得到新增1、仍存在1、已覆盖文件中未再次命中1、覆盖未证实0，3条发现全部保留待验证。新网页进程读取持久快照，HTTP验证owner成功、未登录401、异源403、跨项目与非法ID拒绝、旧任务缺快照不可用。真实浏览器显示同一结果并下载字节完全一致的Markdown。本轮没有模型调用、真实项目或公网扫描。
 
-当前121项插件程序与VM摘要一致，规则、镜像和漏洞库未变。安装前精确源码备份位于`/home/purge/downloads/security-compare-20261030T021036Z`。新增`security_run_snapshot`表仅存在各项目VM私有数据库中，不进入Git导出。退回先前源码时须结束活动任务，恢复备份文件并移除本轮新增模块；保留数据库和新增表，旧源码会忽略该表，不能为回退而删除项目数据。整机恢复点仍未包含本轮功能，也未新增快照。结构化记录见[security-comparison-verification.json](security-comparison-verification.json)。SQLite事务接口参考[Node DatabaseSync](https://nodejs.org/api/sqlite.html#class-databasesync)与[SQLite SAVEPOINT](https://www.sqlite.org/lang_savepoint.html)。
+该阶段121项插件程序与VM摘要一致，规则、镜像和漏洞库未变。安装前精确源码备份位于`/home/purge/downloads/security-compare-20261030T021036Z`。新增`security_run_snapshot`表仅存在各项目VM私有数据库中，不进入Git导出。退回先前源码时须结束活动任务，恢复备份文件并移除本轮新增模块；保留数据库和新增表，旧源码会忽略该表，不能为回退而删除项目数据。整机恢复点仍未包含本轮功能，也未新增快照。结构化记录见[security-comparison-verification.json](security-comparison-verification.json)。SQLite事务接口参考[Node DatabaseSync](https://nodejs.org/api/sqlite.html#class-databasesync)与[SQLite SAVEPOINT](https://www.sqlite.org/lang_savepoint.html)。
 
 ## 运行资源核对与恢复预检
 
@@ -103,7 +105,7 @@
 
 ## 安装、备份和恢复
 
-VM 运行资产位于 `/home/purge/tools/security-workbench/`：`images.json`、`rules.json`、`cache/db/` 和三份 Docker 镜像。该目录、Docker数据和新增审计数据库已纳入当前恢复点`ready-security-audit-20261029`。旧点`ready-recovery-proof-20261029`仍未包含这些内容，恢复旧点会回退，需要重新安装。
+VM 运行资产位于 `/home/purge/tools/security-workbench/`：`images.json`、`rules.json`、`cache/db/` 和三份 Docker 镜像。该目录、Docker数据和新增审计数据库已纳入该阶段恢复点`ready-security-audit-20261029`。旧点`ready-recovery-proof-20261029`仍未包含这些内容，恢复旧点会回退，需要重新安装。
 
 一期程序从 116 项增为 118 项；运行资源核对补充后为 120 项，当前扫描对比补充后为121项，全部摘要与当前 VM 匹配。安装采用精确基线校验、原子文件替换及失败回滚；原始安装前备份为 `/home/purge/downloads/security-phase1-20261029T215152Z`。随后三个小修正分别有独立备份，最终安装前备份为 `/home/purge/downloads/security-phase1-20261029T221648Z`。回退整个一期应按逆序恢复每次精确文件备份，不能只恢复最后一次的两个文件；审计数据独立保留。
 

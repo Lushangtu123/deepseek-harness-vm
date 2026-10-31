@@ -1,7 +1,9 @@
-<!-- security-reload:start -->
-# 当前恢复点：ready-security-reload-20261030
+> 当前版本、恢复点和完成状态统一见[当前状态](current-status.md)。本文的历史验收段落只描述当时结果。
 
-当前127项程序，新点`ready-security-reload-20261030`。独立磁盘副本实际启动后2614项选定稳定摘要与127项程序匹配，原盘换回运行、临时副本清理；旧12点保留，共13点，5个宿主辅助工具覆盖匹配。部署前备份为VM的`/home/purge/downloads/security-reload-ssh-20261030`与宿主原安装根的`setup/before-reload-ssh-20261030`。
+<!-- security-reload:start -->
+# 历史阶段：恢复点：ready-security-reload-20261030
+
+当时127项程序，新点`ready-security-reload-20261030`。独立磁盘副本实际启动后2614项选定稳定摘要与127项程序匹配，原盘换回运行、临时副本清理；旧12点保留，共13点，5个宿主辅助工具覆盖匹配。部署前备份为VM的`/home/purge/downloads/security-reload-ssh-20261030`与宿主原安装根的`setup/before-reload-ssh-20261030`。
 
 本地196项Python（23文件，其中控制器155项/19文件）、443项插件Node、124项入口Node、客户端重建一致性及7项部署故障控制通过，定向复测不累加。真实浏览器在后台成功后收到损坏回执，完整重载与关闭重开仍保留原请求，明确重试未产生重复事件；原VM冷启动后稳定入口读取及恢复徽标通过。SSH真实受控异常和独立菜单采样通过，但旧断连未复现，根因仍未确定。
 
@@ -9,7 +11,7 @@
 <!-- security-reload:end -->
 
 <!-- security-pagination:start -->
-# 当前恢复点：ready-security-pagination-20261030
+# 历史阶段：恢复点：ready-security-pagination-20261030
 
 包含127项插件程序、分页/诊断更新、扫描运行资源及当前来宾配置，5个宿主辅助工具均匹配。保留旧11点，共12点。2612项选定稳定摘要与127项程序已在独立无backing磁盘副本实际启动后匹配；复用原虚拟硬件，换回原盘并正常运行，临时副本已清理，没有注册新VM。选定摘要不是整盘文件数。
 
@@ -17,13 +19,13 @@
 <!-- security-pagination:end -->
 
 <!-- security-lifecycle:start -->
-# 当前恢复点：ready-security-lifecycle-20261030
+# 历史阶段：恢复点：ready-security-lifecycle-20261030
 
 纳入停机探针修复及当前来宾配置，保留旧10点，共11点。此点已在独立磁盘副本上实际启动：2609项选定稳定摘要、126项程序与原生状态查询匹配；自动换回原盘并恢复日常入口通过。复用原UTM虚拟硬件，没有新注册VM；三个临时测试磁盘已清理。选定摘要不等于整盘文件数，恢复仍会回退点后数据，沿用原确认流程。[详细验收](security-lifecycle-verification.json)。以下为历史说明。
 <!-- security-lifecycle:end -->
 
 <!-- security-background:start -->
-# 当前后台版本恢复点
+# 历史阶段：后台版本恢复点
 
 使用`ready-security-background-20261029`：126项插件程序、私有后台用户服务与socket定义、最新合成后台验收数据库均纳入整机。原VM冷启动2607项选定稳定摘要全部匹配；独立离线副本恢复/故障回滚通过，副本未启动/注册。旧9点保留，共10点。
 
@@ -31,7 +33,7 @@
 <!-- security-background:end -->
 
 <!-- security-diagnostics:start -->
-# 当前诊断版本恢复点
+# 历史阶段：诊断版本恢复点
 
 使用`ready-security-diagnostics-20261029`：覆盖当前124项插件程序、5个宿主辅助工具、2个启动定义及解析复现资料。原VM冷启动2580项选定稳定摘要全部匹配；独立离线副本恢复/故障回滚通过，副本未启动/注册。保留旧8点，共9点。宿主SSH私有诊断历史属于运行记录，不导出到Git，不能把guest-proof称为完整整盘清单。
 
@@ -39,7 +41,7 @@
 <!-- security-diagnostics:end -->
 
 <!-- security-current:start -->
-# 当前整机恢复点
+# 历史阶段：整机恢复点
 
 使用`ready-security-workflow-20261029`。包含当前124项插件程序、固定运行资源、最新分页/等待/具体诊断和验收数据库，5个宿主辅助工具与2个启动定义。2058项选定稳定摘要在服务停止后采集，正常关机创建快照；原VM冷启动全部匹配，程序/核心运行时/工具/配置/已导入插件五组覆盖matches。
 
@@ -51,14 +53,14 @@
 <!-- security-followups:start -->
 # 本轮模型工具与诊断更新的回退
 
-当前运行124项插件程序。7个程序文件安装前字节/权限保存在`/home/purge/downloads/security-followups-20261030T045426Z`，并备份11个现有项目SQLite库；最终标识边界单模块修正前保存在`/home/purge/downloads/security-followups-boundary-20261030T045508Z`，并备份12个库。两批项目有重叠，不能相加视为23个独立项目。回退全部本轮更新时，在结束活动任务后按第一份备份恢复6个既有文件，并处理本轮新增personal-security-model.mjs，然后重启、核对摘要；只回退后续单模块补丁使用第二份备份。本轮未改schema，无需删除表或还原项目数据库来回退源码。
+当时运行124项插件程序。7个程序文件安装前字节/权限保存在`/home/purge/downloads/security-followups-20261030T045426Z`，并备份11个现有项目SQLite库；最终标识边界单模块修正前保存在`/home/purge/downloads/security-followups-boundary-20261030T045508Z`，并备份12个库。两批项目有重叠，不能相加视为23个独立项目。回退全部本轮更新时，在结束活动任务后按第一份备份恢复6个既有文件，并处理本轮新增personal-security-model.mjs，然后重启、核对摘要；只回退后续单模块补丁使用第二份备份。本轮未改schema，无需删除表或还原项目数据库来回退源码。
 
 整机点仍`ready-security-validated-20261029`，包含上轮123项程序和16条规则。本轮源码、模型合成会话及诊断任务未纳入该点；恢复会回退本轮及点后数据，沿用原明确确认入口。本轮无新整机镜像/快照，旧恢复点和宿主隔离不变。以下保存历史阶段说明，以本节为最新状态。
 <!-- security-followups:end -->
 
 # 恢复与路径说明
 
-## 当前恢复点与本轮备份
+## 历史阶段：恢复点与本轮备份
 
 当前为`ready-security-validated-20261029`，已包含123项插件、local-reviewed-2的16条规则、运行资产、真实项目/合成验收记录及5个宿主辅助工具、2个启动定义。独立离线副本的恢复/故障回滚/磁盘检查及原VM冷启动验收通过；2051项字节摘要匹配，1项聊天归档通过原压缩前缀及单条初始化追加校验。保留旧6点，共7个快照；仍只有1台注册VM。本轮临时磁盘副本验收后已清理，原先离线镜像不动，未验收副本启动。
 
@@ -71,11 +73,11 @@
 
 ## 审计资料结构校验的源码备份
 
-当前仍122项插件程序。本轮仅更新`client.js`、`lib/redteam/personal-security-client.mjs`及`PERSONAL-CHANGES.md`，原字节与权限保存在`/home/purge/downloads/security-status-20261030T032530Z`。需要回退时先结束活动任务，恢复这三个文件后重启并核对；无需删除数据库或更换扫描资产。当前整机恢复点未更新，仍不含本轮修复。下文保留历史阶段备份。
+当时仍122项插件程序。本轮仅更新`client.js`、`lib/redteam/personal-security-client.mjs`及`PERSONAL-CHANGES.md`，原字节与权限保存在`/home/purge/downloads/security-status-20261030T032530Z`。需要回退时先结束活动任务，恢复这三个文件后重启并核对；无需删除数据库或更换扫描资产。当前整机恢复点未更新，仍不含本轮修复。下文保留历史阶段备份。
 
 ## 报告汇总与历史范围的源码备份
 
-当前122项插件程序。报告汇总更新的安装前备份为`/home/purge/downloads/security-report-20261030T024230Z`，保存原`PERSONAL-CHANGES.md`和`lib/redteam/personal-security-workbench.mjs`；新增`lib/redteam/personal-security-report.mjs`当时不存在。单独的旧网址缺项显示修正前备份为`/home/purge/downloads/security-report-legacy-20261030T024743Z`，只含新报告模块的先前版本。
+当时122项插件程序。报告汇总更新的安装前备份为`/home/purge/downloads/security-report-20261030T024230Z`，保存原`PERSONAL-CHANGES.md`和`lib/redteam/personal-security-workbench.mjs`；新增`lib/redteam/personal-security-report.mjs`当时不存在。单独的旧网址缺项显示修正前备份为`/home/purge/downloads/security-report-legacy-20261030T024743Z`，只含新报告模块的先前版本。
 
 回退整个报告汇总更新须在无活动扫描时恢复第一份备份的两个旧文件，并移除本轮新增报告模块，再重启并检查。只回退旧网址显示修正则使用第二份单文件备份。无需删除或回退项目数据库；本轮没有schema或扫描资产变更。当前整机恢复点仍为较早的120项程序/6条规则，不含最新报告功能；本轮未创建整机快照。以下小节保留各历史阶段的文件数量与备份。
 
@@ -93,15 +95,15 @@
 
 当前运行local-reviewed-2（16条规则），恢复点ready-security-audit-20261029保留上一轮6条规则及旧页面源码。因此当前恢复覆盖显示差异是预期结果；本轮没有新增整机快照。7个变更文件（5个插件文件、规则、运行清单）安装前原始字节与权限保存于`/home/purge/downloads/security-rules-20261030T015220Z`。回退本轮必须在无扫描时同时恢复程序、rules.json和images.json，并执行运行资源预检；不要单独更换规则以绕过摘要核对。
 
-## 当前安全审计恢复边界
+## 历史阶段：安全审计恢复边界
 
-当前恢复点`ready-security-audit-20261029`已包含120项插件程序、已安装扫描器Docker数据、Trivy漏洞库和对应宿主入口；1568项证明摘要在服务停止后采集，正常关机创建磁盘快照，日常VM冷启动后全部匹配。恢复点元数据、规则和漏洞库metadata进入固定覆盖检查；完整数据库另做全文摘要与运行资源预检，不在页面轮询中反复哈希大文件。
+当时恢复点`ready-security-audit-20261029`已包含120项插件程序、已安装扫描器Docker数据、Trivy漏洞库和对应宿主入口；1568项证明摘要在服务停止后采集，正常关机创建磁盘快照，日常VM冷启动后全部匹配。恢复点元数据、规则和漏洞库metadata进入固定覆盖检查；完整数据库另做全文摘要与运行资源预检，不在页面轮询中反复哈希大文件。
 
 独立APFS磁盘副本实际执行了恢复、宿主辅助文件替换故障的回滚与正常重试，磁盘检查通过；副本没有注册或启动，主盘没有在副本验收中回退。日常VM冷启动是单独验证，不能把两者合称“副本启动通过”。Git仓库仍不包含Docker层、漏洞库或审计数据，单靠clone不能重建整机。详见[验收记录](security-acceptance-verification.json)。
 
 手动漏洞库维护通过Mac统一启动器选项9执行，数据库事务备份独立于整机恢复点。恢复后同时执行原Python配置预检与安装目录中的`security-runtime-preflight.mjs`，见[安全审计说明](security-audit.md)。恢复该点会回退创建后产生的文件、会话和数据库；先结束任务并正常关机。
 
-## 当前机器
+## 历史阶段：机器
 
 日常网页入口为 `http://127.0.0.1:49226/`；底层转发为49224，SSH为49223，受限出口为49222。仅允许本机连接。私有登录链接由当前机器的启动器更新，不保存在仓库中。
 

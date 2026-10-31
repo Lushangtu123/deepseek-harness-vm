@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-security-reload-ssh-personal2",
+  "configuration": "merged-security-multiwindow-bootstrap-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-security-reload-20261030",
+  "recoveryPoint": "ready-security-multiwindow-20261030",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -485,7 +485,7 @@
   },
   "programFiles": {
     ".npmignore": "7e04cab6ff4206c15db2a40b0a7fbc1e7ecdad17fa066c1194f02c32df0a026b",
-    "client.js": "66ada9a65218a9475fde08e859e4463b87d34c66777d3c9c6e240789bcf8d422",
+    "client.js": "f07a378ebc348791045b8f87932aab4d9fb0290167ec9d5f9d15a2469674efee",
     "screenshots.json": "9e6600ec59cce473c540b62cc47c83bc6091346065405cd807ee066a9b92bf44",
     "release-notes.md": "8b699de924c5f6be487ce3e06178cdbc33ae410831d989f0ac2455e8b15694b0",
     "cordis.patch.yml": "9e1578290bd9912d47ecac286286aac6ca92f1e5241e8873f8af6c8ae35a3c44",
@@ -575,7 +575,7 @@
     "lib/redteam/personal-security-identity.mjs": "e68974ce5c706335e85bdf0ecb3d9861b0eccbee7b1e2f2b69a46b93bf14f40b",
     "lib/redteam/platform-config.js": "3b4667f588fd2e0ef7e0b6b8855525ba5a3c1621196809bdfa1b0e09d1b2cedc",
     "lib/redteam/ip-utils.js": "53ce639f4e184c531adb395bcb79a22b4591ca476bdbc8e7bc8a716ede5df72d",
-    "lib/redteam/personal-security-client.mjs": "546ede43c8ff0c1f9142b3d8b5d6133bde011be34e23cd8503358a2b36c01ab4",
+    "lib/redteam/personal-security-client.mjs": "54726e04476537d73cd56337b21c06fc1c5595f475bb348ab28bccd13339d720",
     "lib/redteam/personal-project-slots.mjs": "ed2612f728f4f55293b325e639af0b2808cd250442c7a0cc1e1a2ba00431cdd4",
     "lib/redteam/personal-security-report.mjs": "f4cc1de063cff19a3fb08ea0f49afaa804014f8bbbac08d263f47bf8af125453",
     "lib/redteam/skill-availability.js": "934a575a09f460b642adbd44d3540ae6e752838dc7ce4cb937ee426fa398ccc0",
@@ -669,6 +669,7 @@
       "ready-security-background-20261029",
       "ready-security-diagnostics-20261029",
       "ready-security-lifecycle-20261030",
+      "ready-security-multiwindow-20261030",
       "ready-security-pagination-20261030",
       "ready-security-reload-20261030",
       "ready-security-validated-20261029",
@@ -683,10 +684,10 @@
   },
   "hostToolUpdate": {
     "date": "2026-10-30",
-    "baseRecoveryPoint": "ready-security-reload-20261030",
+    "baseRecoveryPoint": "ready-security-multiwindow-20261030",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "e345de37c760811ef924c54e3e1880465f84e53d9cd7d65c551c7c78d721eb66",
+      "manage.py": "9bc836af296f8a0d57f58359452b5992fc3dc790867e307fccf0633fd0607950",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -752,12 +753,22 @@
     "ciWorkflow": ".github/workflows/verify.yml",
     "ciCommand": "python3 -B scripts/ci.py --suite all",
     "reloadAndSshSamplingVerification": "docs/security-reload-verification.json",
-    "reloadAndSshSamplingIncludedInRecoveryPoint": true
+    "reloadAndSshSamplingIncludedInRecoveryPoint": true,
+    "multiwindowBootstrapVerification": "docs/multiwindow-bootstrap-verification.json",
+    "multiwindowIncludedInRecoveryPoint": true
   },
   "publication": {
     "repository": "Lushangtu123/deepseek-harness-vm",
     "visibility": "public",
     "explicitlyAuthorized": "2026-10-30",
     "scope": "sanitized configuration, source and verification summaries only; excludes credentials, chat, project databases and VM disks"
+  },
+  "basicBootstrap": {
+    "scope": "basic-harness-plugin-web",
+    "instructions": "docs/basic-bootstrap.md",
+    "directPins": "inventory/bootstrap-lock.json",
+    "freshVmTested": true,
+    "completeProfessionalRecoveryTested": false,
+    "credentialsCopied": false
   }
 }

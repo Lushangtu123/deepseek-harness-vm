@@ -21,6 +21,19 @@ export function createSecurityTab(React,api,options={}){
  const scopePath=value=>{if(!string(value)||!value.startsWith('/'))return null;const parts=[];for(const part of value.split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part)}return'/'+parts.join('/')};
  const storage=()=>Object.hasOwn(options,'storage')?options.storage:globalThis.localStorage;
  const receiptKey=eng=>{if(!string(eng,240)||!eng||/[\x00-\x1f]/.test(eng))throw Error('项目标识无效');return'dsh-security-request-v1:'+encodeURIComponent(eng)};
+ const locks=()=>Object.hasOwn(options,'locks')?options.locks:globalThis.navigator?.locks;
+ const coordinated=()=>{try{return typeof locks()?.request==='function'}catch{return false}};
+ const exclusive=async(eng,action)=>{
+  let entered=false,callbackError;
+  try{
+   const manager=locks();if(typeof manager?.request!=='function')throw Error();
+   await manager.request(receiptKey(eng),{mode:'exclusive',ifAvailable:true},async lock=>{
+    if(!lock)return;entered=true;
+    try{return await action()}catch(error){callbackError=error;throw error}
+   });
+  }catch{if(callbackError)throw callbackError;throw Error('多窗口协调不可用；请刷新核对，不会自动重发操作。')}
+  if(!entered)throw Error('另一窗口正在处理本项目操作；请稍后刷新核对，不会排队或自动重发。');
+ };
  const validRequest=(value,eng)=>{
   if(!record(value)||value.engagement!==eng||!string(value.requestId,100)||!/^[A-Za-z0-9_-]{8,100}$/.test(value.requestId))return false;
   const keys={securityScopeSave:['confirm','expiresAt','repoRoot','revision','tools','url'],securityStart:['profileRevision','tool'],securityReview:['id','revision','status','note']};
@@ -113,6 +126,18 @@ export function createSecurityTab(React,api,options={}){
    finally{if(guard.current.alive&&token===guard.current.sequence)setLoading(false)}
   };
   React.useEffect(()=>{guard.current.alive=true;if(pageQuery.current.owner!==engagement)setSearchDraft('');load({resetPages:true});return()=>{guard.current.alive=false;guard.current.sequence++}},[engagement,refreshKey]);
+  React.useEffect(()=>{
+   const target=Object.hasOwn(options,'events')?options.events:globalThis;
+   if(typeof target?.addEventListener!=='function'||typeof target?.removeEventListener!=='function')return;
+   const sync=()=>{if(!guard.current.writing&&guard.current.alive&&guard.current.owner===engagement&&guard.current.context===contextAtRender)load()};
+   const changed=event=>{
+    if(event.key!==null&&event.key!==receiptKey(engagement))return;
+    try{if(event.storageArea&&event.storageArea!==storage())return}catch{}
+    sync();
+   };
+   target.addEventListener('storage',changed);target.addEventListener('focus',sync);
+   return()=>{target.removeEventListener('storage',changed);target.removeEventListener('focus',sync)};
+  },[engagement,refreshKey]);
   const running=data?.activeRun??data?.runs?.find(row=>row.state==='running');
   React.useEffect(()=>{if(!running)return;const timer=setInterval(load,2500);return()=>clearInterval(timer)},[running?.id,engagement,refreshKey]);
   const mutate=async(request,{receipt=false}={})=>{
@@ -120,13 +145,16 @@ export function createSecurityTab(React,api,options={}){
    const context=guard.current.context,current=()=>guard.current.alive&&context===guard.current.context;
    guard.current.writing=true;setBusy(true);setError('');
    try{
+    await exclusive(engagement,async()=>{
+    if(!current())return;
     if(receipt){try{request=persistReceipt(request);restoreReceipt()}catch(error){setStorageError(error.message);throw error}}
     const result=await api(request);
     if(receipt&&(confirmedMutation(result,request)||result?.ok===false&&definiteRejection(result,request)))releaseReceipt(request);
     if(!current())return;
     if(receipt)restoreReceipt();
     if(result?.ok===false)throw Error(result.error||'操作已拒绝');if(result?.ok!==true||receipt&&!confirmedMutation(result,request))throw Error('操作回执无效，结果未确认');
-    if(request.op==='securityScopeSave'){dirty.current=false;setDraft(old=>({...old,...result.profile,confirm:false}))}await load({resetPages:true});
+    if(request.op==='securityScopeSave'&&(!dirty.current||['revision','repoRoot','url','expiresAt','tools','confirm'].every(key=>JSON.stringify(draft?.[key])===JSON.stringify(request[key])))){dirty.current=false;setDraft(old=>({...old,...result.profile,confirm:false}))}await load({resetPages:true});
+    });
    }
    catch(e){if(current())setError((e.message||'操作失败')+(receipt?'；可刷新查询结果。若重试，将复用同一请求号。':''))}
    finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
@@ -145,9 +173,12 @@ export function createSecurityTab(React,api,options={}){
   const downloadComparison=()=>{if(!guard.current.alive||comparisonGeneration!==compareGuard.current||!comparisonValue?.available)return;const url=URL.createObjectURL(new Blob([comparisonValue.markdown],{type:'text/markdown;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='security-comparison-'+engagement+'.md';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
   const change=(key,value)=>{if(!guard.current.alive||guard.current.context!==contextAtRender||writeReceipt.current||storageError)return;dirty.current=true;setDraft(old=>({...old,[key]:value}))};
   const discardReceipt=async()=>{
-   if(!discardAck||busy||loading||unconfirmed||guard.current.writing||guard.current.sequence!==viewGeneration||guard.current.context!==contextAtRender||guard.current.owner!==engagement||journal.current?.owner!==engagement||discardApproval.current?.raw!==discardRaw||discardApproval.current?.generation!==viewGeneration)return;
-   try{const target=storage(),key=receiptKey(engagement);if(discardRaw===undefined||journal.current.raw!==discardRaw||target.getItem(key)!==discardRaw)throw Error();target.removeItem(key);restoreReceipt();await load({resetPages:true})}
-   catch{restoreReceipt();setError('恢复记录已变化或无法清除；请重新读取后核对。')}
+   const allowed=()=>guard.current.alive&&discardAck&&!busy&&!loading&&!unconfirmed&&guard.current.sequence===viewGeneration&&guard.current.context===contextAtRender&&guard.current.owner===engagement&&journal.current?.owner===engagement&&discardApproval.current?.raw===discardRaw&&discardApproval.current?.generation===viewGeneration;
+   if(guard.current.writing||!allowed())return;
+   guard.current.writing=true;setBusy(true);
+   try{await exclusive(engagement,async()=>{if(!allowed())return;const target=storage(),key=receiptKey(engagement);if(discardRaw===undefined||journal.current.raw!==discardRaw||target.getItem(key)!==discardRaw)throw Error();target.removeItem(key);restoreReceipt();await load({resetPages:true})})}
+   catch{if(guard.current.alive&&guard.current.context===contextAtRender){restoreReceipt();setError('恢复记录已变化、另一窗口正在处理或多窗口协调不可用；请重新读取后核对。')}}
+   finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
   };
   const save=()=>mutate({op:'securityScopeSave',engagement,requestId:id(),...draft},{receipt:true});
   const start=(tool,finding)=>mutate({op:'securityStart',engagement,requestId:id(),profileRevision:data.profile.revision,tool,...(finding?{retestFindingId:finding.id}:{})},{receipt:true});
@@ -166,7 +197,7 @@ export function createSecurityTab(React,api,options={}){
   };
   const button=(label,onClick,disabled=false)=>h('button',{type:'button',className:'rt-btn',onClick,disabled:busy||disabled},label);
   const field=(label,key,type='text')=>h('label',{className:'rts-field'},h('span',null,label),h('input',{className:'rt-input',type,value:draft?.[key]||'',disabled:busy||!!writeReceipt.current||!!storageError,onChange:e=>change(key,e.target.value)}));
-  const actionable=data&&data.engagement===engagement&&!error&&!loading&&!busy&&!running&&!writeReceipt.current&&!storageError;
+  const actionable=data&&data.engagement===engagement&&!error&&!loading&&!busy&&!running&&!writeReceipt.current&&!storageError&&coordinated();
   const pageDisabled=loading||busy||!!error||data?.engagement!==engagement;
   const movePage=(collection,forward)=>{
    if(pageDisabled)return;const current=pageQuery.current[collection],meta=data?.pagination?.[collection];if(!meta||forward&&!meta.hasMore||!forward&&!current.history.length)return;
@@ -197,9 +228,10 @@ export function createSecurityTab(React,api,options={}){
    updateGuide&&h('section',{className:'rt-card','aria-label':'漏洞库更新说明'},h('h4',null,'在 Mac 上更新漏洞库'),h('p',null,'打开 Harness.command，选择选项 9。先检查版本；结束任务后选择更新并确认。下载及校验完成后会短暂重启 Harness，保留原库备份，不更换扫描器镜像。'),h('p',null,'若更新中断，请先选择检查；如提示维护未完成，再选择恢复。请勿重复提交更新。'),button('收起说明',()=>setUpdateGuide(false))),
    h('p',{className:'rts-meta'},'任务由 VM 独立后台持有，关闭网页或结束会话后继续运行。回来后刷新查看原任务；VM 关机或后台服务停止仍会中断，不会自动重跑。'),
    error&&h('div',{className:'rt-err',role:'alert'},error),
+   !coordinated()&&h('p',{className:'rts-alert'},'本浏览器的多窗口协调不可用，审计写入和清除恢复记录已暂停；请使用支持 Web Locks 的同源浏览器页面。'),
    data&&unconfirmed&&h('p',{className:'rts-alert'},'当前资料未确认，以下为上次成功读取结果；写入和导出已暂停，请刷新核对。'),
    running&&!data.runs.some(row=>row.id===running.id)&&h('div',{className:'rts-alert'},'当前运行任务：'+running.id,button('取消当前任务',()=>mutate({op:'securityCancel',engagement,id:running.id}),loading||unconfirmed)),
-   (pendingRequest||storageError)&&h('section',{className:'rts-alert','aria-label':'恢复未确认操作'},h('h4',null,'恢复未确认操作'),h('p',null,storageError||'发现本浏览器保存的未确认操作；不会自动重发。请先核对已保存任务与以下原始请求内容。'),pendingRequest&&h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},JSON.stringify(pendingRequest,null,2)),pendingRequest&&button('重试同一请求',()=>mutate(pendingRequest,{receipt:true}),loading||unconfirmed||!!storageError),button('重新读取恢复记录',()=>load({resetPages:true}),loading),journal.current?.raw!==undefined&&journal.current?.raw!==null&&h('div',null,h('label',null,h('input',{type:'checkbox','aria-label':'确认清除恢复提示',checked:discardAck,disabled:busy||loading||unconfirmed,onChange:e=>{if(guard.current.context!==contextAtRender||guard.current.sequence!==viewGeneration||journal.current?.raw!==discardRaw)return;discardApproval.current=e.target.checked?{raw:discardRaw,generation:viewGeneration}:null;setDiscardAck(e.target.checked)}}),' 我已核对记录；清除此提示不会取消、撤销或证明原操作未执行。'),button('仅清除恢复提示',discardReceipt,!discardAck||loading||unconfirmed))),
+   (pendingRequest||storageError)&&h('section',{className:'rts-alert','aria-label':'恢复未确认操作'},h('h4',null,'恢复未确认操作'),h('p',null,storageError||'发现本浏览器保存的未确认操作；不会自动重发。请先核对已保存任务与以下原始请求内容。'),pendingRequest&&h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},JSON.stringify(pendingRequest,null,2)),pendingRequest&&button('重试同一请求',()=>mutate(pendingRequest,{receipt:true}),loading||unconfirmed||!!storageError||!coordinated()),button('重新读取恢复记录',()=>load({resetPages:true}),loading),journal.current?.raw!==undefined&&journal.current?.raw!==null&&h('div',null,h('label',null,h('input',{type:'checkbox','aria-label':'确认清除恢复提示',checked:discardAck,disabled:busy||loading||unconfirmed,onChange:e=>{if(guard.current.context!==contextAtRender||guard.current.sequence!==viewGeneration||journal.current?.raw!==discardRaw)return;discardApproval.current=e.target.checked?{raw:discardRaw,generation:viewGeneration}:null;setDiscardAck(e.target.checked)}}),' 我已核对记录；清除此提示不会取消、撤销或证明原操作未执行。'),button('仅清除恢复提示',discardReceipt,!discardAck||loading||unconfirmed||!coordinated()))),
    !data&&!error&&h('p',null,'正在读取项目配置…'),
    data&&draft&&h('section',{className:'rt-card','aria-label':'项目审计范围'},h('h4',null,'项目审计范围'),h('p',{className:'rts-meta'},'仅扫描 /home/purge/workspace 下的所选目录；ZAP 第一期仅接入 VM 内 127.0.0.1 的明确端口。'),
     h('div',{className:'rts-grid'},field('仓库绝对路径','repoRoot'),field('VM 本地网址（ZAP 必填）','url','url'),field('授权到期时间（ISO 8601）','expiresAt')),
