@@ -20,7 +20,16 @@
     "hostNodeCases": 124,
     "reproducibleClient": true,
     "deploymentFaultCases": 7,
-    "countsAreSeparateSuites": true
+    "countsAreSeparateSuites": true,
+    "actualLinuxVmFullGate": {
+      "passed": true,
+      "temporarySanitizedSourceFiles": 397,
+      "productionProgramsOrDataChanged": false,
+      "pythonCases": 186,
+      "pluginCases": 432,
+      "hostCases": 124,
+      "reproducibleClient": true
+    }
   },
   "nativePaging": {
     "engagement": "personal-security-pagination-ci-20261030",
@@ -211,14 +220,17 @@
     "serverPolicyChanged": false
   },
   "cloudCiAtPackaging": {
-    "state": "first-run-failed-test-isolation-correction-awaiting-remote-verification",
+    "state": "two-native-ubuntu-test-fixture-failures-corrected-awaiting-remote-verification",
     "firstRun": "https://github.com/Lushangtu123/deepseek-harness-vm/actions/runs/41151882378",
     "failedTest": "Lifecycle.test_proxy_stop_failure_is_not_reported_as_success",
     "cause": "unmocked web_entry_stop attempted /bin/launchctl on Ubuntu",
     "correction": "mock web entry stop; assert no real host subprocess; preserve exact proxy error expectation",
     "deployedProgramChanged": false,
     "workflow": "https://github.com/Lushangtu123/deepseek-harness-vm/actions/workflows/verify.yml",
-    "sourceChecksDoNotReplaceNativeVmAcceptance": true
+    "sourceChecksDoNotReplaceNativeVmAcceptance": true,
+    "secondRun": "https://github.com/Lushangtu123/deepseek-harness-vm/actions/runs/41152782048",
+    "secondCause": "synthetic checked-helper test depended on fixed Mac Python path",
+    "secondCorrection": "only test interpreter uses sys.executable; still assert production Mac interpreter and exact checked stdin bytes"
   },
   "boundaries": {
     "hostFullAccessGranted": false,

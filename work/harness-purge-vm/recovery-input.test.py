@@ -126,11 +126,13 @@ else:raise SystemExit('Nonregular bundle accepted')
     result=m.deployment_status();self.assertEqual(result['mode'],'improved');self.assertEqual(result['recovery']['state'],'invalid');self.assertEqual(command.call_count,0,'Changed helper must be rejected before starting Python')
 
  def test_helper_exec_uses_checked_bytes_even_if_original_path_changes(self):
+  self.assertEqual(m.PYTHON,'/opt/homebrew/bin/python3','Production Mac interpreter policy changed')
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);folder,manifest,target,raw,actual=self.helper_status_fixture(root);command=m.command;outputs=[]
    def swap_before_exec(*args,**kwargs):
+    self.assertEqual(args[0][:2],[sys.executable,'-']);self.assertEqual(kwargs.get('input'),raw.decode())
     target.write_text("raise SystemExit('UNVERIFIED_HELPER_RAN')\n");result=command(*args,**kwargs);outputs.append(json.loads(result.stdout));return result
-   with patch.object(m,'ROOT',root),patch.object(m,'validate'),patch.object(m,'current_host_inventory',return_value=manifest['helpers']),patch.object(m,'current_launch_inventory',return_value=manifest['launchAgents']),patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps(actual))),patch.object(m,'command',side_effect=swap_before_exec):
+   with patch.object(m,'ROOT',root),patch.object(m,'PYTHON',sys.executable),patch.object(m,'validate'),patch.object(m,'current_host_inventory',return_value=manifest['helpers']),patch.object(m,'current_launch_inventory',return_value=manifest['launchAgents']),patch.object(m,'ssh',return_value=MagicMock(stdout=json.dumps(actual))),patch.object(m,'command',side_effect=swap_before_exec):
     result=m.deployment_status();self.assertEqual(result['mode'],'improved')
    self.assertEqual(len(outputs),1,'Checked helper must actually execute');self.assertFalse(outputs[0]['changedHelper'])
 
