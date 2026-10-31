@@ -36,6 +36,8 @@ GitHub工作流在`main`推送、PR或手动触发时运行，官方Action固定
 
 [查看GitHub检查](https://github.com/Lushangtu123/deepseek-harness-vm/actions/workflows/verify.yml)。工作流是否通过应以对应提交的实际运行结果为准。
 
+首次Ubuntu CI在控制器测试中发现一个遗漏的网页入口模拟调用，尝试执行仅Mac提供的`launchctl`，因此真实失败。已补齐测试边界，并加入禁止该单元测试启动真实宿主进程的断言；代理停止异常仍必须被明确抛出。该修正只改变测试，不修改已部署的控制器或恢复点。原始失败保留在[首次运行](https://github.com/Lushangtu123/deepseek-harness-vm/actions/runs/41151882378)。
+
 ## 保留的缺口
 
 Semgrep的既有`PartialParsing`继续如实保留。旧SSH失败与首次副本断言因原始信息缺失不能追溯；本轮另捕获一次SSH标识交换被重置，服务器对应窗口未记录明确拒绝原因，底层原因仍未确定。没有通过修改SSH限制、网络规则或放宽权限掩盖失败。

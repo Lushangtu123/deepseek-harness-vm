@@ -161,8 +161,9 @@ class Lifecycle(unittest.TestCase):
    with self.assertRaises(RuntimeError):m.stop()
    ssh.assert_not_called();out.assert_not_called()
  def test_proxy_stop_failure_is_not_reported_as_success(self):
-  with patch.object(m,'validate'),patch.object(m,'vm_status',return_value='stopped'),patch.object(m,'proxy_stop',side_effect=RuntimeError('proxy still running')),patch('builtins.print') as out:
-   with self.assertRaises(RuntimeError):m.stop()
+  with patch.object(m,'validate'),patch.object(m,'vm_status',return_value='stopped'),patch.object(m,'web_entry_stop') as entry,patch.object(m,'proxy_stop',side_effect=RuntimeError('proxy still running')) as proxy,patch.object(m.subprocess,'run',side_effect=AssertionError('Unit test attempted a real host process')),patch('builtins.print') as out:
+   with self.assertRaisesRegex(RuntimeError,'proxy still running'):m.stop()
+   entry.assert_called_once();proxy.assert_called_once()
    out.assert_not_called()
  def test_restore_requires_explicit_confirmation(self):
   with patch.object(m,'command') as command:

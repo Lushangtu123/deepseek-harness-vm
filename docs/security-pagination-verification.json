@@ -211,7 +211,12 @@
     "serverPolicyChanged": false
   },
   "cloudCiAtPackaging": {
-    "state": "not-observed-before-first-push",
+    "state": "first-run-failed-test-isolation-correction-awaiting-remote-verification",
+    "firstRun": "https://github.com/Lushangtu123/deepseek-harness-vm/actions/runs/41151882378",
+    "failedTest": "Lifecycle.test_proxy_stop_failure_is_not_reported_as_success",
+    "cause": "unmocked web_entry_stop attempted /bin/launchctl on Ubuntu",
+    "correction": "mock web entry stop; assert no real host subprocess; preserve exact proxy error expectation",
+    "deployedProgramChanged": false,
     "workflow": "https://github.com/Lushangtu123/deepseek-harness-vm/actions/workflows/verify.yml",
     "sourceChecksDoNotReplaceNativeVmAcceptance": true
   },
