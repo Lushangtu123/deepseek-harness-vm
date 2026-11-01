@@ -76,7 +76,7 @@ test('Adapters parse structured output without retaining secrets and refuse malf
  assert.throws(()=>parseScanOutput('zap',{site:'wrong'}));
 });
 test('Container plans pin images, constrain resources and never accept arbitrary command arguments',async()=>{
- const {buildScanPlan}=await api();const profile={repoRoot:'/home/purge/workspace/repo',url:'http://127.0.0.1:15000'};const manifest={tools:['semgrep','trivy','zap'].map(tool=>({tool,imageId:'sha256:'+'a'.repeat(64),version:'fixture'}))};
+ const {buildScanPlan}=await api();const profile={repoRoot:'/home/purge/workspace/repo',url:'http://127.0.0.1:15000'};const manifest={tools:['semgrep','trivy','zap'].map(tool=>({tool,imageId:'sha256:'+'a'.repeat(64),imageRef:'personal-security/'+tool+'@sha256:'+'a'.repeat(64),version:'fixture'}))};
  const plan=buildScanPlan('semgrep',profile,'/home/purge/workspace/runs/fixture',manifest);assert.equal(plan.executable,'/usr/bin/sudo');assert.ok(plan.args.includes('--read-only'));assert.ok(plan.args.includes('none'));assert.ok(plan.args.includes('sha256:'+'a'.repeat(64)));assert.ok(plan.args.includes('--metrics=off'));assert.ok(!plan.args.includes('--privileged'));
  assert.throws(()=>buildScanPlan('shell',profile,'/tmp/out',manifest));
 });

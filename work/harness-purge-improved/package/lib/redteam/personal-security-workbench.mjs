@@ -76,7 +76,7 @@ export function buildScanPlan(tool,profile,runDir,manifest){
   if(!profile.url)fail('请先配置已授权的VM本地URL');args.push('--network','host','--workdir','/out','--tmpfs','/home/zap/.ZAP:rw,uid=1000,gid=1000,size=67108864','--env','HOME=/tmp','--env','JAVA_OPTS=-Xmx640m','--mount','type=bind,src='+runDir+',dst=/zap/wrk');
   args.push('--entrypoint','zap-baseline.py');command=['--autooff','--hook','/out/loopback-hook.py','-t',profile.url,'-n','/zap/wrk/scope.context','-m','1','-T','3','-P','49090','-J','result.json','-z','-Xmx640m -dir /tmp/zap -host 127.0.0.1 -config autoupdate.checkOnStart=false'];
  }
- args.push(installed.imageRef||installed.imageId,...command);return{executable:'/usr/bin/sudo',args,outputFile:join(runDir,'result.json'),containerName:'dsh-sec-'+runDir.split('/').pop(),version:installed.version||'未确认',coverageKey:digest([tool,installed.imageId,manifest.rulesSha256,manifest.database?.digest||null,profile.repoRoot,tool==='zap'?profile.url:null,...(tool==='trivy'?['package-identity-1']:[])])};
+ args.push(installed.imageId,...command);return{executable:'/usr/bin/sudo',args,outputFile:join(runDir,'result.json'),containerName:'dsh-sec-'+runDir.split('/').pop(),version:installed.version||'未确认',coverageKey:digest([tool,installed.imageId,manifest.rulesSha256,manifest.database?.digest||null,profile.repoRoot,tool==='zap'?profile.url:null,...(tool==='trivy'?['package-identity-1']:[])])};
 }
 
 function manifestOf(){try{return readRuntimeManifest(ROOT)}catch{return{tools:[]}}}

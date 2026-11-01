@@ -4,7 +4,7 @@
 
 这一步只安装官方 Harness、改进版 dsh-purge 和网页服务。需要新建的 Ubuntu 24.04 ARM64 专用 VM、名为 `purge` 的 UID 1000 用户、`/home/purge`、Python 3.12+、systemd 用户服务、无密码 sudo，以及已由宿主准备的隔离网络。安装器不会创建 VM、修改 Mac 权限或安装网络代理。
 
-先只读核对：
+将安装源码放在工作区之外，例如 `/home/purge/bootstrap-input/source`，避免把安装源码误当成已有用户项目。先只读核对：
 
 ```sh
 python3 -B scripts/bootstrap_guest.py
@@ -24,7 +24,7 @@ Node、Harness 和 pnpm 的直接下载版本及摘要见 `inventory/bootstrap-l
 
 安装成功会启动 `dsh-original` 和私有 `harness-security.socket`。网页登录链接仅在 VM 的服务日志中生成，含本地令牌，请不要公开日志。未导入模型账号，需要在本地另行配置；安装过程不调用模型或扫描器。
 
-基础安装不复制日常 VM 的账号、聊天、项目、扫描数据、REA、reverse-skill、PentAGI、扫描器资产、桌宠/市场等可选插件，也不启用原版能力运行时或复制本仓库的四个运行时覆盖模块。这些是单独配置步骤，不能用网页启动成功推断全部工具已恢复。
+基础安装不复制日常 VM 的账号、聊天、项目、扫描数据、REA、reverse-skill、PentAGI、扫描器资产、桌宠/市场等可选插件，也不启用原版能力运行时或复制本仓库的四个运行时覆盖模块。这些由后续[专业资产安装](professional-bootstrap.md)提供；模型账号和新工作区仍单独配置，不能用网页启动成功推断全部工具已恢复。
 
 恢复预检仍检查完整日常环境；基础安装不应被它判定为整套恢复完成。现有整机恢复点属于原 Mac 的另一个恢复路径，见[恢复说明](restore.md)。
 

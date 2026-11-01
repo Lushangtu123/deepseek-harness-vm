@@ -8,6 +8,15 @@ TARGET=Path('/home/purge')
 NODE_VERSION='24.22.1'
 HARNESS_VERSION='0.2.1-rc.3'
 PNPM_VERSION='11.28.5'
+BASIC_FILES=['.config/systemd/user/dsh-original.service','.config/systemd/user/harness-security.service','.config/systemd/user/harness-security.socket','.dsh-improved/cordis.patch.yml','.dsh-improved/profiles/web/package.json','.dsh-improved/profiles/web/cordis.patch.yml','tools/harness-improved-runtime/package.json','.dsh-improved/.credentials.yaml','.dsh-improved/storages/workspace.json']
+
+def basic_file_receipt(home):
+ result={}
+ for name in BASIC_FILES:
+  path=home/name
+  if path.resolve()!=path or not path.is_file() or path.stat().st_size>2*1024*1024:raise ValueError('Basic configuration is not an ordinary bounded file')
+  result[name]=hashlib.sha256(path.read_bytes()).hexdigest()
+ return result
 
 def supported_distribution(info):
  return info.get('ID')=='ubuntu' and info.get('VERSION_ID')=='24.04'
@@ -154,6 +163,7 @@ WantedBy=default.target
    time.sleep(1)
   if not ready:raise ValueError('Web startup not confirmed')
   result={'ok':True,'scope':'basic-harness-plugin-web','programFiles':len(files),'nodeVersion':NODE_VERSION,'harnessVersion':HARNESS_VERSION,'pnpmVersion':PNPM_VERSION,'webResponding':True,'copiesCredentials':False,'installsProfessionalTools':False,'modelOrScannerInvocation':False,'dependencyLock':str(runtime/'package-lock.json'),'privateInstallationLog':str(log),'accountSetupRequired':True}
+  result['baseFiles']=basic_file_receipt(TARGET)
   (marker/'complete.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result));return 0
  except (OSError,ValueError,KeyError,subprocess.SubprocessError,tarfile.TarError):
   result={'ok':False,'phase':phase,'automaticRetry':False,'error':'Installation incomplete; inspect the private VM installation log','privateInstallationLog':str(log)}

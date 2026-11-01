@@ -77,7 +77,7 @@ export function createRuntimeInspector({root=SECURITY_RUNTIME_ROOT,now=Date.now,
   let manifest;
   try{manifest=readRuntimeManifest(root)}catch{return value}
   let observed;
-  try{observed=inspectImages(manifest.tools.map(row=>row.imageRef));if(!observed||!Array.isArray(observed.images))throw Error('invalid inspector reply')}
+  try{observed=inspectImages(manifest.tools.map(row=>row.imageId));if(!observed||!Array.isArray(observed.images))throw Error('invalid inspector reply')}
   catch{observed={available:false,images:[]}}
   for(const tool of TOOLS){
    const pin=manifest.tools.find(row=>row.tool===tool),image=observed.images.find(row=>row.id===pin.imageId),entry=value[tool];entry.version=pin.version;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-pet-menu-personal2",
+  "configuration": "merged-professional-bootstrap-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-pet-menu-20261030",
+  "recoveryPoint": "ready-professional-bootstrap-20261031",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -659,11 +659,12 @@
     ]
   },
   "recoveryRetention": {
-    "date": "2026-10-30",
+    "date": "2026-10-31",
     "keptSnapshots": [
       "ready-original",
       "ready-pet-corner-20261030",
       "ready-pet-menu-20261030",
+      "ready-professional-bootstrap-20261031",
       "ready-recovery-guard-20261029",
       "ready-recovery-proof-20261029",
       "ready-recovery-resume-20261029",
@@ -685,11 +686,11 @@
     "latestProbeCopyBootTested": true
   },
   "hostToolUpdate": {
-    "date": "2026-10-30",
-    "baseRecoveryPoint": "ready-pet-menu-20261030",
+    "date": "2026-10-31",
+    "baseRecoveryPoint": "ready-professional-bootstrap-20261031",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "7c4756cff46b4c22418a959638322bfaa72b1467d3921e87370d06d0f16873be",
+      "manage.py": "52b318f0dcd54ec0461d7991ed019d070e230617101aad411d43bda72bc04bc1",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -782,5 +783,13 @@
     "instructions": "docs/pet-layout.md",
     "verification": "docs/pet-menu-verification.json",
     "includedInRecoveryPoint": true
+  },
+  "professionalBootstrap": {
+    "instructions": "docs/professional-bootstrap.md",
+    "verification": "docs/professional-bootstrap-verification.json",
+    "assetLock": "inventory/professional-assets-lock.json",
+    "copiesSourceCredentialsOrUserData": false,
+    "modelAccountSetupRequired": true,
+    "largeAssetsIncludedInGit": false
   }
 }

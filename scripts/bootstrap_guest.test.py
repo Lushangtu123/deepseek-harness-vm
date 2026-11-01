@@ -50,4 +50,14 @@ class BootstrapTests(unittest.TestCase):
   self.assertTrue(bootstrap.supported_distribution({'ID':'ubuntu','VERSION_ID':'24.04'}))
   for info in [{'ID':'debian','VERSION_ID':'12'},{'ID':'ubuntu','VERSION_ID':'22.04'},{}]:self.assertFalse(bootstrap.supported_distribution(info))
 
+ def test_basic_configuration_receipt_records_only_fixed_files_and_refuses_links(self):
+  with tempfile.TemporaryDirectory() as folder:
+   home=Path(folder).resolve()
+   for name in bootstrap.BASIC_FILES:
+    path=home/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'basic configuration')
+   receipt=bootstrap.basic_file_receipt(home)
+   self.assertEqual(set(receipt),set(bootstrap.BASIC_FILES));self.assertTrue(all(value==__import__('hashlib').sha256(b'basic configuration').hexdigest() for value in receipt.values()))
+   path=home/bootstrap.BASIC_FILES[0];path.rename(path.with_suffix('.saved'));path.symlink_to(path.with_suffix('.saved'))
+   with self.assertRaises(ValueError):bootstrap.basic_file_receipt(home)
+
 if __name__=='__main__':unittest.main()
