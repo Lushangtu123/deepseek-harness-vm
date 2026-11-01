@@ -1,3 +1,5 @@
+> 2026-11-01 新增私有会话到期与受控重新导入、安全审计页面自动恢复；本轮没有真实九小时休眠验收。见[本轮验收](session-lifecycle-verification.json)与[当前状态](current-status.md)。下文保留历史结论。
+
 > 2026-11-01 新增本地认证 ZAP 与解析失败文件有限文本补查，实际界面、报告、恢复副本结果见[本轮验收](authenticated-zap-verification.json)及[当前状态](current-status.md)。下文保留各历史阶段原结论。
 
 > 当前状态见[统一状态](current-status.md)。2026-10-31新增SSH并发保护与PentAGI端到端合成验收，见[本轮结果](ssh-pentagi-verification.json)。下文按各历史阶段原结论保留。

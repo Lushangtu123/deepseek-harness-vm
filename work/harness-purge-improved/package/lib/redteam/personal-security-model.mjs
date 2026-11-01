@@ -30,7 +30,7 @@ export async function modelSecurityResult(bench,eng,input){
   let result;
   if(op==='securityStatus'){
    const runtime=bench.toolStatus(),tools=Object.fromEntries(['semgrep','trivy','zap'].map(tool=>[tool,{ready:runtime[tool]?.ready===true,version:text(runtime[tool]?.version,80),reason:text(runtime[tool]?.reason,200)}]));
-   result={...base,profile:profile?{...profile,repoRoot:text(profile.repoRoot,500),url:text(profile.url,300)}:null,tools,runs:db.prepare('SELECT * FROM security_run ORDER BY rowid DESC LIMIT 3').all().map(readRun),runsPreviewLimit:3,next:'长任务用wait(id,waitSeconds=30)；发现和更早任务用report(section=findings或runs,cursor)。完整Markdown在安全审计页导出。'};
+   result={...base,authSession:profile?.authProfile?bench.authStatus(profile.authProfile,profile.url):null,profile:profile?{...profile,repoRoot:text(profile.repoRoot,500),url:text(profile.url,300)}:null,tools,runs:db.prepare('SELECT * FROM security_run ORDER BY rowid DESC LIMIT 3').all().map(readRun),runsPreviewLimit:3,next:'长任务用wait(id,waitSeconds=30)；发现和更早任务用report(section=findings或runs,cursor)。完整Markdown在安全审计页导出。'};
    while(Buffer.byteLength(JSON.stringify(result))>6000&&result.runs.length)result.runs.pop();
   }else{
    const section=args.section??'findings',limit=args.limit??5;if(!['findings','runs'].includes(section)||!Number.isSafeInteger(limit)||limit<1||limit>10)throw Error('section须为findings或runs，limit须为1–10');

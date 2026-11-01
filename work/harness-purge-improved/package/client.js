@@ -3680,6 +3680,8 @@ function createBindingMonitor({ getSessionId, read, publish, now = Date.now }) {
 // Self-contained factory, embedded by scripts/build-client.mjs; no network or DOM work at import.
 function createSecurityTab(React,api,options={}){
  const h=React.createElement;
+ const documentState=Object.hasOwn(options,'document')?options.document:globalThis.document,timers=options.timers??globalThis,now=options.now??Date.now;
+ const visible=()=>documentState?.visibilityState!=='hidden';
  const toolNames={semgrep:'Semgrep · 代码检查',trivy:'Trivy · 依赖与配置',zap:'ZAP · 本地网页基线'};
  const statusNames={unverified:'待验证',confirmed:'已确认','false-positive':'误报',fixed:'已记录修复','retest-passed':'复测通过',reopened:'再次出现',running:'运行中',completed:'已完成',partial:'覆盖不完整',failed:'失败',cancelled:'已取消',interrupted:'中断'};
  const label=(labels,key,fallback=key)=>Object.hasOwn(labels,key)?labels[key]:fallback;
@@ -3750,6 +3752,12 @@ function createSecurityTab(React,api,options={}){
   return value.state!=='verified'||!!value.revision&&value.checkedRequests===2&&value.before&&value.after&&value.scannerBefore&&value.scannerAfter;
  };
  const validProfile=value=>value===null||(record(value)&&positive(value.revision)&&string(value.repoRoot)&&value.repoRoot.length>0&&optionalString(value.url)&&date(value.expiresAt)&&toolList(value.tools)&&authName(value.authProfile)&&(!value.authProfile||!!value.url&&value.tools.includes('zap')));
+ const validSession=(value,profile)=>{
+  if(!record(value)||Object.keys(value).sort().join(',')!==['version','profile','revision','state','expiresAt','checkedAt'].sort().join(',')||value.version!==1||value.profile!==profile||!date(value.checkedAt)||!['ready','expiring','expired','unavailable'].includes(value.state))return false;
+  if(value.state==='unavailable')return value.revision===null&&value.expiresAt===null;
+  if(typeof value.revision!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.revision)||!date(value.expiresAt))return false;
+  const remaining=Date.parse(value.expiresAt)-Date.parse(value.checkedAt);return value.state==='expired'?remaining<=0:value.state==='expiring'?remaining>0&&remaining<=300000:remaining>300000&&remaining<=31*86400000;
+ };
  const validRuntime=value=>{
   if(!record(value)||typeof value.ready!=='boolean'||!(value.ready?string(value.version,128)&&value.version.length>0:optionalString(value.version))||!optionalString(value.reason)||!optionalString(value.warning)||(value.checkedAt!=null&&!date(value.checkedAt))||(value.cached!==undefined&&typeof value.cached!=='boolean'))return false;
   if(value.rules!=null&&(!record(value.rules)||!string(value.rules.version,128)||!positive(value.rules.count)||value.rules.count>1000||!Array.isArray(value.rules.languages)||!value.rules.languages.length||value.rules.languages.length>100||!value.rules.languages.every(language=>string(language,128)&&language.length>0)))return false;
@@ -3788,6 +3796,7 @@ function createSecurityTab(React,api,options={}){
  };
  const valid=(v,eng,query)=>{
   if(!record(v)||v.ok!==true||v.engagement!==eng||!validProfile(v.profile)||!record(v.tools)||!Object.keys(toolNames).every(tool=>validRuntime(v.tools[tool]))||!date(v.observedAt))return false;
+  if(Object.hasOwn(v,'authSession')&&(v.profile?.authProfile?!validSession(v.authSession,v.profile.authProfile):v.authSession!==null))return false;
   if(v.pagination!==undefined){
    if(!record(v.pagination)||!nonnegative(v.totalRuns)||!nonnegative(v.totalFindings)||!(v.activeRun===null||validRun(v.activeRun)&&v.activeRun.state==='running')||!Array.isArray(v.comparisonRuns)||v.comparisonRuns.length>30||v.comparisonRuns.some(row=>!validRun(row)||row.state!=='completed'||row.complete!==1)||new Set(v.comparisonRuns.map(row=>row.id)).size!==v.comparisonRuns.length)return false;
    return [['runs',v.totalRuns,validRun],['findings',v.totalFindings,validFinding]].every(([key,total,check])=>Array.isArray(v[key])&&v[key].every(check)&&new Set(v[key].map(row=>row.id)).size===v[key].length&&validPage(v.pagination[key],query[key],v[key],key)&&v.pagination[key].total<=total);
@@ -3796,44 +3805,47 @@ function createSecurityTab(React,api,options={}){
  };
  return function SecurityTab({engagement,refreshKey}){
   const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false),[loading,setLoading]=React.useState(true),[draft,setDraft]=React.useState(null),[notes,setNotes]=React.useState({}),[updateGuide,setUpdateGuide]=React.useState(false),[comparison,setComparison]=React.useState({owner:engagement,base:'',current:'',result:null,error:'',loading:false});
-  const [exporting,setExporting]=React.useState(false),[unconfirmed,setUnconfirmed]=React.useState(false),[searchDraft,setSearchDraft]=React.useState(''),[storageError,setStorageError]=React.useState(''),[discardAck,setDiscardAck]=React.useState(false);
-  const guard=React.useRef({alive:true,sequence:0,writing:false,owner:engagement,context:0}),dirty=React.useRef(false),writeReceipt=React.useRef(null),journal=React.useRef(null),discardApproval=React.useRef(null),compareGuard=React.useRef(0),exportGuard=React.useRef(null),pageQuery=React.useRef(freshPages(engagement));
-  if(guard.current.owner!==engagement){guard.current.owner=engagement;guard.current.context++;writeReceipt.current=null;dirty.current=false;journal.current=null}
+  const [exporting,setExporting]=React.useState(false),[unconfirmed,setUnconfirmed]=React.useState(false),[searchDraft,setSearchDraft]=React.useState(''),[storageError,setStorageError]=React.useState(''),[discardAck,setDiscardAck]=React.useState(false),[authGuide,setAuthGuide]=React.useState(false);
+  const guard=React.useRef({alive:true,sequence:0,writing:false,owner:engagement,context:0,read:null,confirmed:false,recover:false,authSelected:false}),dirty=React.useRef(false),writeReceipt=React.useRef(null),journal=React.useRef(null),discardApproval=React.useRef(null),compareGuard=React.useRef(0),exportGuard=React.useRef(null),pageQuery=React.useRef(freshPages(engagement));
+  if(guard.current.owner!==engagement){guard.current.read?.abort();guard.current.read=null;guard.current.confirmed=false;guard.current.owner=engagement;guard.current.context++;writeReceipt.current=null;dirty.current=false;journal.current=null}
   const contextAtRender=guard.current.context;
   const restoreReceipt=()=>{const value=readReceipt(engagement);journal.current=value;writeReceipt.current=value.request;setStorageError(value.error);discardApproval.current=null;setDiscardAck(false)};
   const viewGeneration=guard.current.sequence;
   const discardRaw=journal.current?.owner===engagement?journal.current.raw:undefined;
-  const load=async({refreshRuntime=false,targetPages=null,resetPages=false}={})=>{
+  const load=async({refreshRuntime=false,targetPages=null,resetPages=false,automatic=false}={})=>{
    if(!guard.current.alive||guard.current.owner!==engagement||guard.current.context!==contextAtRender)return;
+   if(automatic&&(!visible()||guard.current.read||guard.current.writing))return;
+   guard.current.read?.abort();const controller=new AbortController();guard.current.read=controller;guard.current.confirmed=false;
    const source=(targetPages??pageQuery.current).owner===engagement?(targetPages??pageQuery.current):freshPages(engagement);
    const target=resetPages?{...source,runs:{...source.runs,cursor:null,history:[]},findings:{...source.findings,cursor:null,history:[]}}:source,pages=requestPages(target);
    const token=++guard.current.sequence;restoreReceipt();setLoading(true);exportGuard.current=null;setExporting(false);compareGuard.current++;setComparison(old=>old.owner===engagement?{...old,result:null,error:'',loading:false}:{owner:engagement,base:'',current:'',result:null,error:'',loading:false});
-   try{const next=await api({op:'securityStatus',engagement,pages,...(refreshRuntime?{refreshRuntime:true}:{})});if(!guard.current.alive||token!==guard.current.sequence)return;if(!valid(next,engagement,pages))throw Error(next?.ok===false&&typeof next.error==='string'?next.error:'安全审计资料无效，当前结果未确认');pageQuery.current=target;setData(next);setError('');setUnconfirmed(false);setDraft(old=>{if(dirty.current&&old)return old;const p=next.profile;return p?{...p,confirm:false}:{repoRoot:'',url:'',expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy'],revision:0,confirm:false}})}
-   catch(e){if(guard.current.alive&&token===guard.current.sequence){setError(e.message||'读取失败');setUnconfirmed(true)}}
-   finally{if(guard.current.alive&&token===guard.current.sequence)setLoading(false)}
+   try{const next=await api({op:'securityStatus',engagement,pages,...(refreshRuntime?{refreshRuntime:true}:{})},{signal:controller.signal});if(!guard.current.alive||token!==guard.current.sequence)return;if(!valid(next,engagement,pages))throw Error(next?.ok===false&&typeof next.error==='string'?next.error:'安全审计资料无效，当前结果未确认');pageQuery.current=target;guard.current.confirmed=true;guard.current.recover=false;guard.current.authSelected=!!next.profile?.authProfile;setData(next);setError('');setUnconfirmed(false);setDraft(old=>{if(dirty.current&&old)return old;const p=next.profile;return p?{...p,confirm:false}:{repoRoot:'',url:'',expiresAt:new Date(Date.now()+86400000).toISOString(),tools:['semgrep','trivy'],revision:0,confirm:false}})}
+   catch(e){if(guard.current.alive&&token===guard.current.sequence){guard.current.recover=true;setError(e.message||'读取失败');setUnconfirmed(true)}}
+   finally{if(guard.current.alive&&token===guard.current.sequence){guard.current.read=null;setLoading(false)}}
   };
-  React.useEffect(()=>{guard.current.alive=true;if(pageQuery.current.owner!==engagement)setSearchDraft('');load({resetPages:true});return()=>{guard.current.alive=false;guard.current.sequence++}},[engagement,refreshKey]);
+  React.useEffect(()=>{guard.current.alive=true;if(pageQuery.current.owner!==engagement)setSearchDraft('');load({resetPages:true});return()=>{guard.current.alive=false;guard.current.sequence++;guard.current.read?.abort();guard.current.read=null;guard.current.confirmed=false}},[engagement,refreshKey]);
   React.useEffect(()=>{
    const target=Object.hasOwn(options,'events')?options.events:globalThis;
-   if(typeof target?.addEventListener!=='function'||typeof target?.removeEventListener!=='function')return;
-   const sync=()=>{if(!guard.current.writing&&guard.current.alive&&guard.current.owner===engagement&&guard.current.context===contextAtRender)load()};
-   const changed=event=>{
-    if(event.key!==null&&event.key!==receiptKey(engagement))return;
-    try{if(event.storageArea&&event.storageArea!==storage())return}catch{}
-    sync();
-   };
-   target.addEventListener('storage',changed);target.addEventListener('focus',sync);
-   return()=>{target.removeEventListener('storage',changed);target.removeEventListener('focus',sync)};
+   let last=now();
+   const current=()=>guard.current.alive&&guard.current.owner===engagement&&guard.current.context===contextAtRender;
+   const invalidate=()=>{guard.current.read?.abort();guard.current.read=null;guard.current.sequence++;guard.current.confirmed=false;guard.current.recover=true;exportGuard.current=null;compareGuard.current++;setUnconfirmed(true);setLoading(false);setExporting(false)};
+   const sync=()=>{if(!current())return;invalidate();if(visible()&&!guard.current.writing)load()};
+   const changed=event=>{if(event.key!==null&&event.key!==receiptKey(engagement))return;try{if(event.storageArea&&event.storageArea!==storage())return}catch{}sync()};
+   const visibility=()=>{if(!current())return;last=now();if(visible())sync();else invalidate()};
+   const heartbeat=()=>{if(!current())return;const currentTime=now(),gap=currentTime-last;last=currentTime;if(!visible())return;if(gap>60000||gap<0){sync();return}if(guard.current.recover||guard.current.authSelected)load({automatic:true})};
+   target?.addEventListener?.('storage',changed);target?.addEventListener?.('focus',sync);target?.addEventListener?.('pageshow',sync);documentState?.addEventListener?.('visibilitychange',visibility);
+   const timer=timers.setInterval(heartbeat,30000);timer?.unref?.();
+   return()=>{timers.clearInterval(timer);target?.removeEventListener?.('storage',changed);target?.removeEventListener?.('focus',sync);target?.removeEventListener?.('pageshow',sync);documentState?.removeEventListener?.('visibilitychange',visibility)};
   },[engagement,refreshKey]);
   const running=data?.activeRun??data?.runs?.find(row=>row.state==='running');
-  React.useEffect(()=>{if(!running)return;const timer=setInterval(load,2500);return()=>clearInterval(timer)},[running?.id,engagement,refreshKey]);
+  React.useEffect(()=>{if(!running)return;const timer=timers.setInterval(()=>load({automatic:true}),2500);timer?.unref?.();return()=>timers.clearInterval(timer)},[running?.id,engagement,refreshKey]);
   const mutate=async(request,{receipt=false}={})=>{
-   if(guard.current.writing||!guard.current.alive||guard.current.context!==contextAtRender||guard.current.owner!==engagement||request?.engagement!==engagement)return;
+   if(!guard.current.confirmed||viewGeneration!==guard.current.sequence||guard.current.writing||!guard.current.alive||guard.current.context!==contextAtRender||guard.current.owner!==engagement||request?.engagement!==engagement)return;
    const context=guard.current.context,current=()=>guard.current.alive&&context===guard.current.context;
    guard.current.writing=true;setBusy(true);setError('');
    try{
     await exclusive(engagement,async()=>{
-    if(!current())return;
+    if(!current()||!guard.current.confirmed||viewGeneration!==guard.current.sequence)return;
     if(receipt){try{request=persistReceipt(request);restoreReceipt()}catch(error){setStorageError(error.message);throw error}}
     const result=await api(request);
     if(receipt&&(confirmedMutation(result,request)||result?.ok===false&&definiteRejection(result,request)))releaseReceipt(request);
@@ -3844,13 +3856,13 @@ function createSecurityTab(React,api,options={}){
     });
    }
    catch(e){if(current())setError((e.message||'操作失败')+(receipt?'；可刷新查询结果。若重试，将复用同一请求号。':''))}
-   finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
+   finally{guard.current.writing=false;if(guard.current.alive)setBusy(false);if(current()&&guard.current.recover&&visible())load({automatic:true})}
   };
   const choices=data?.engagement===engagement?(data.comparisonRuns??data.runs.filter(run=>run.state==='completed'&&run.complete===1)):[],ownedComparison=comparison.owner===engagement?comparison:null;
   const currentId=ownedComparison?.current||choices[0]?.id||'',baseId=ownedComparison?.base||choices[1]?.id||'';
   const selectComparison=(key,value)=>{compareGuard.current++;setComparison({owner:engagement,base:baseId,current:currentId,[key]:value,result:null,error:'',loading:false})};
   const compareSelected=async()=>{
-   if(ownedComparison?.loading||!baseId||!currentId||baseId===currentId||!guard.current.alive)return;
+   if(!guard.current.confirmed||viewGeneration!==guard.current.sequence||ownedComparison?.loading||!baseId||!currentId||baseId===currentId||!guard.current.alive)return;
    const request={op:'securityCompare',engagement,baseRunId:baseId,currentRunId:currentId},token=++compareGuard.current;
    setComparison({owner:engagement,base:baseId,current:currentId,result:null,error:'',loading:true});
    try{const value=await api(request);if(!guard.current.alive||token!==compareGuard.current)return;if(!comparisonValid(value,request))throw Error(value?.error||'对比结果未确认');setComparison({owner:engagement,base:baseId,current:currentId,result:value,error:'',loading:false})}
@@ -3868,10 +3880,10 @@ function createSecurityTab(React,api,options={}){
    finally{guard.current.writing=false;if(guard.current.alive)setBusy(false)}
   };
   const save=()=>mutate({op:'securityScopeSave',engagement,requestId:id(),...draft},{receipt:true});
-  const start=(tool,finding)=>mutate({op:'securityStart',engagement,requestId:id(),profileRevision:data.profile.revision,tool,...(finding?{retestFindingId:finding.id}:{})},{receipt:true});
+  const start=(tool,finding)=>{if(tool==='zap'&&data?.profile?.authProfile&&!['ready','expiring'].includes(data?.authSession?.state))return;return mutate({op:'securityStart',engagement,requestId:id(),profileRevision:data.profile.revision,tool,...(finding?{retestFindingId:finding.id}:{})},{receipt:true})};
   const review=(finding,status)=>mutate({op:'securityReview',engagement,requestId:id(),id:finding.id,revision:finding.revision,status,note:notes[finding.id]||''},{receipt:true});
   const download=async()=>{
-   if(!guard.current.alive||viewGeneration!==guard.current.sequence||exportGuard.current||loading||error||data?.engagement!==engagement)return;
+   if(!guard.current.confirmed||!guard.current.alive||viewGeneration!==guard.current.sequence||exportGuard.current||loading||error||data?.engagement!==engagement)return;
    const token={generation:viewGeneration};exportGuard.current=token;setExporting(true);
    const current=()=>guard.current.alive&&viewGeneration===guard.current.sequence&&exportGuard.current===token;
    try{
@@ -3926,7 +3938,8 @@ function createSecurityTab(React,api,options={}){
     h('div',{className:'rts-tools'},...Object.keys(toolNames).map(tool=>h('label',{key:tool},h('input',{type:'checkbox',checked:draft.tools.includes(tool),disabled:busy,onChange:e=>change('tools',e.target.checked?[...draft.tools,tool]:draft.tools.filter(v=>v!==tool))}),' '+tool.toUpperCase()))),
     h('label',null,h('input',{type:'checkbox',checked:!!draft.confirm,disabled:busy,onChange:e=>change('confirm',e.target.checked)}),' 我确认上述目录和本地网址可进行所选检查'),
     h('div',{className:'rts-actions'},button('保存范围',save,!actionable||!draft.confirm||!draft.repoRoot||!draft.tools.length),draft.revision!==(data.profile?.revision||0)&&button('采用最新范围（丢弃本地草稿）',()=>{dirty.current=false;setDraft({...data.profile,confirm:false})},!!running||!!writeReceipt.current||!!storageError),h('span',{className:'rts-meta'},'当前版本 '+(data.profile?.revision||0)+(expired?' · 未配置或已过期':'')))),
-   data&&h('div',{className:'rts-grid'},...Object.keys(toolNames).map(tool=>h('section',{key:tool,className:'rt-card'},h('h4',null,toolNames[tool]),h('div',{className:'rts-meta'},data.tools[tool]?.ready?'已就绪 · '+data.tools[tool].version:(data.tools[tool]?.reason||'工具或离线数据库未就绪')),data.tools[tool]?.rules&&h('p',{className:'rts-meta'},'本地规则：'+data.tools[tool].rules.version+' · '+data.tools[tool].rules.count+' 条 · '+data.tools[tool].rules.languages.join(' / ')),data.tools[tool]?.checkedAt&&h('p',{className:'rts-meta'},'资源核对：'+data.tools[tool].checkedAt+(data.tools[tool].cached?' · 30秒内缓存':'')),data.tools[tool]?.database?.updatedAt&&h('p',{className:'rts-meta'},'漏洞库更新：'+data.tools[tool].database.updatedAt+' · '+data.tools[tool].database.ageDays+'天'),data.tools[tool]?.lastUpdate&&h('p',{className:'rts-meta'},'上次维护：'+label(maintenanceNames,data.tools[tool].lastUpdate.state,'未确认')+' · '+data.tools[tool].lastUpdate.checkedAt),data.tools[tool]?.warning&&h('p',{className:'rts-alert'},data.tools[tool].warning),h('p',{className:'rts-meta'},tool==='semgrep'?'本地启发式规则；需人工复核，不代表完整覆盖；不上传源码':tool==='trivy'?'离线数据库；检查依赖、配置和凭据痕迹':'被动检查与短时爬取；会向所选本地应用发送请求'),button('开始检查',()=>start(tool),!actionable||expired||!data.profile?.tools.includes(tool)||!data.tools[tool]?.ready||dirty.current)))),
+   data?.profile?.authProfile&&h('section',{className:'rt-card','aria-label':'私有会话配置状态'},h('h4',null,({ready:'会话配置有效',expiring:'会话配置即将到期',expired:'会话配置已过期',unavailable:'会话配置不可用'})[data.authSession?.state]||'会话配置状态未提供'),h('p',null,'当前已保存会话：'+data.profile.authProfile),data.authSession?.expiresAt&&h('p',null,'配置到期：'+data.authSession.expiresAt),data.authSession?.checkedAt&&h('p',{className:'rts-meta'},'配置核对：'+data.authSession.checkedAt),h('p',{className:'rts-meta'},'仅核对私有文件格式与有效期，未探测当前登录；开始扫描时仍会验证登录标记。网页不接收 Cookie 或令牌。'),button('重新导入说明',()=>setAuthGuide(value=>!value)),authGuide&&h('div',null,h('p',null,'原配置保留。先在 VM 私有文件中准备新的 value 与 expiresAt，再用新名称导入；在本页填写新名称并确认保存后才切换。'),data.authSession?.revision&&h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},'python3 /home/purge/tools/dsh-purge-personal-1.1.77-personal.1/scripts/security-local-lab.py renew-session '+data.profile.authProfile+' new-session --origin '+data.profile.url+' --expected-revision '+data.authSession.revision+' --confirm < /home/purge/downloads/private-renewal.json'),h('p',null,'原配置不可读取时，使用 import-session 导入完整的新配置。真实登录、MFA 与续期需自行完成，勿把私有值粘贴到网页或聊天。'))),
+   data&&h('div',{className:'rts-grid'},...Object.keys(toolNames).map(tool=>h('section',{key:tool,className:'rt-card'},h('h4',null,toolNames[tool]),h('div',{className:'rts-meta'},data.tools[tool]?.ready?'已就绪 · '+data.tools[tool].version:(data.tools[tool]?.reason||'工具或离线数据库未就绪')),data.tools[tool]?.rules&&h('p',{className:'rts-meta'},'本地规则：'+data.tools[tool].rules.version+' · '+data.tools[tool].rules.count+' 条 · '+data.tools[tool].rules.languages.join(' / ')),data.tools[tool]?.checkedAt&&h('p',{className:'rts-meta'},'资源核对：'+data.tools[tool].checkedAt+(data.tools[tool].cached?' · 30秒内缓存':'')),data.tools[tool]?.database?.updatedAt&&h('p',{className:'rts-meta'},'漏洞库更新：'+data.tools[tool].database.updatedAt+' · '+data.tools[tool].database.ageDays+'天'),data.tools[tool]?.lastUpdate&&h('p',{className:'rts-meta'},'上次维护：'+label(maintenanceNames,data.tools[tool].lastUpdate.state,'未确认')+' · '+data.tools[tool].lastUpdate.checkedAt),data.tools[tool]?.warning&&h('p',{className:'rts-alert'},data.tools[tool].warning),h('p',{className:'rts-meta'},tool==='semgrep'?'本地启发式规则；需人工复核，不代表完整覆盖；不上传源码':tool==='trivy'?'离线数据库；检查依赖、配置和凭据痕迹':'被动检查与短时爬取；会向所选本地应用发送请求'),button('开始检查',()=>start(tool),!actionable||expired||!data.profile?.tools.includes(tool)||!data.tools[tool]?.ready||tool==='zap'&&!!data.profile?.authProfile&&!['ready','expiring'].includes(data.authSession?.state)||dirty.current)))),
    data&&h('section',{className:'rt-card','aria-label':'审计任务'},h('h4',null,'审计任务 · '+(pageTitle('runs')??('最近 '+data.runs.length+(data.totalRuns===undefined?'':' / '+data.totalRuns)))),pageControls('runs'),!data.runs.length&&h('p',null,data.pagination?'当前筛选没有匹配任务':'尚未运行检查'),...data.runs.map(run=>h('div',{key:run.id,className:'rts-run'},h('div',null,run.tool.toUpperCase()+' · '+label(statusNames,run.state)+' · '+run.started_at),h('div',{className:'rts-meta'},run.id+' · '+(run.revision_ref||'工作区扫描')+(run.error_code?' · '+run.error_code:'')),run.details?.supplemental&&h('p',{className:'rts-alert'},'有限文本补查 '+run.details.supplemental.checkedFiles+'/'+run.details.supplemental.candidateFiles+' 个候选文件；跳过 '+run.details.supplemental.skippedFiles+'；提示 '+run.details.supplemental.hints+(run.details.supplemental.truncated?'；窗口已截断':'')+'。仅匹配固定字样，注释或字符串也可能命中；语义解析缺口仍保留，不计完整覆盖。'),run.details?.authentication&&h('p',{className:'rts-meta'},'认证 '+(run.details.authentication.state==='verified'?'前后核对通过':'未确认')+' · '+run.details.authentication.profile+'；仅核对扫描前后，不保证持续登录。'),run.details?.diagnostics&&h('div',{className:'rts-alert'},'扫描诊断 '+run.details.diagnostics.total+' 项'+(run.details.diagnostics.truncated?' · 显示前20项':''),...run.details.diagnostics.items.map((d,index)=>h('p',{key:index},d.code+' · '+d.path+(d.line?':'+d.line:'')))),run.state==='partial'&&!run.details?.diagnostics&&h('p',{className:'rts-meta'},'旧任务未保存具体覆盖诊断；保持覆盖不完整，请重新检查后核对。'),run.state==='running'&&button('取消任务',()=>mutate({op:'securityCancel',engagement,id:run.id}),loading||unconfirmed)))),
    data&&h('section',{className:'rt-card','aria-label':'扫描结果对比'},
     h('h4',null,'扫描结果对比'),h('p',{className:'rts-meta'},'选择最近30次任务中的两个完整任务。新任务保存观察快照，旧任务缺少快照时无法推断；对比不会修改发现状态。'),

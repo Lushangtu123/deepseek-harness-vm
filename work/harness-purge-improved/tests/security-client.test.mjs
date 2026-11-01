@@ -5,10 +5,10 @@ const flush=()=>new Promise(setImmediate);
 const memoryStorage=()=>{const values=new Map();return{get length(){return values.size},key:index=>[...values.keys()][index]??null,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)}};
 const memoryLocks=()=>{const held=new Set();return{async request(name,options,run){assert.deepEqual(options,{mode:'exclusive',ifAvailable:true});if(held.has(name))return run(null);held.add(name);try{return await run({name,mode:'exclusive'})}finally{held.delete(name)}}}};
 const eventHub=()=>{const listeners=new Map();return{addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn)},removeEventListener(type,fn){listeners.get(type)?.delete(fn)},emit(type,event={}){for(const fn of listeners.get(type)??[])fn(event)},get count(){return[...listeners.values()].reduce((n,rows)=>n+rows.size,0)}}};
-function host(api,{storage=memoryStorage(),locks=memoryLocks(),events=null}={}){
+function host(api,{storage=memoryStorage(),locks=memoryLocks(),events=null,...lifecycle}={}){
  let cells=[],index=0,pending=[],dirty=false,tree,props={engagement:'a',refreshKey:0},unmounted=false,late=0;
  const React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(v=>v!==false&&v!==null&&v!==undefined)}),useState(initial){const at=index++;if(!cells[at])cells[at]={value:typeof initial==='function'?initial():initial};return[cells[at].value,value=>{if(unmounted){late++;return}cells[at].value=typeof value==='function'?value(cells[at].value):value;dirty=true}]},useRef(initial){const at=index++;return cells[at]||(cells[at]={current:initial})},useEffect(effect,deps){const at=index++,previous=cells[at];if(!previous||deps.some((value,i)=>value!==previous.deps[i]))pending.push(()=>{previous?.cleanup?.();cells[at]={deps,cleanup:effect()}})}};
- const Component=createSecurityTab(React,api,{storage,locks,events});
+ const Component=createSecurityTab(React,api,{storage,locks,events,...lifecycle});
  const render=(next=props)=>{props=next;for(let n=0;n<10;n++){dirty=false;index=0;tree=Component(props);const effects=pending;pending=[];effects.forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled hooks')};
  return{render,unmount(){unmounted=true;cells.forEach(row=>row.cleanup?.())},get late(){return late}};
 }
@@ -322,4 +322,50 @@ test('Authentication metadata is displayed with pre/post limits and malformed or
 });
 test('Limited parser text checks remain visibly partial and malformed supplement counters pause actions',async()=>{
  let summary={version:1,policy:'parser-text-1',candidateFiles:2,checkedFiles:1,skippedFiles:1,hints:1,truncated:false};const h=host(async()=>({...state(),runs:[{id:'parser-gap',tool:'semgrep',state:'partial',complete:0,started_at:new Date().toISOString(),details:{supplemental:summary,diagnostics:{total:1,items:[{code:'PartialParsing',path:'gap.mjs',line:1}],truncated:false}}}]}));try{h.render();await flush();let tree=h.render();assert.match(text(tree),/有限文本补查/);assert.match(text(tree),/语义.*缺口|解析缺口/);assert.match(text(tree),/PartialParsing/);summary={...summary,checkedFiles:3};await btn(tree,'刷新').props.onClick();tree=h.render();assert.ok(btn(tree,'开始检查').props.disabled);assert.match(text(tree),/未确认|无效/)}finally{h.unmount()}
+});
+
+test('Session expiry reminders distinguish local configuration from login proof and keep expired ZAP disabled',async()=>{
+ let metadata={version:1,profile:'local-login',revision:'879b1b08-0a7d-4f84-9f1d-d50cb7f94072',state:'expiring',expiresAt:new Date(Date.now()+120000).toISOString(),checkedAt:new Date().toISOString()};const writes=[];
+ const h=host(async request=>{if(request.op==='securityStart')writes.push(request);const value=state();return{...value,profile:{...value.profile,url:'http://127.0.0.1:18080',authProfile:'local-login',tools:['zap']},tools:{...value.tools,zap:{ready:true,version:'fixture'}},authSession:metadata}});try{
+  h.render();await flush();let tree=h.render();assert.match(text(tree),/会话配置即将到期/);assert.match(text(tree),/未探测.*登录|未验证.*登录/);assert.equal(nodes(tree).filter(n=>n.type==='button'&&text(n)==='开始检查').at(-1).props.disabled,false);
+  await btn(tree,'重新导入说明').props.onClick();assert.match(text(h.render()),/renew-session local-login new-session/);assert.match(text(h.render()),/原配置保留/);
+  metadata={...metadata,state:'expired',expiresAt:new Date(Date.now()-1000).toISOString(),checkedAt:new Date().toISOString()};await btn(h.render(),'刷新').props.onClick();tree=h.render();assert.match(text(tree),/会话配置已过期/);const start=nodes(tree).filter(n=>n.type==='button'&&text(n)==='开始检查').at(-1);assert.equal(start.props.disabled,true);await start.props.onClick();assert.equal(writes.length,0);
+  metadata={...metadata,value:'PRIVATE_STATUS_CANARY'};await btn(tree,'刷新').props.onClick();tree=h.render();assert.match(text(tree),/无效|未确认/);assert.doesNotMatch(text(tree),/PRIVATE_STATUS_CANARY/);
+ }finally{h.unmount()}
+});
+
+test('Visible resume aborts stale status reads, blocks retained writes and preserves scope drafts',async()=>{
+ const events=eventHub(),document=eventHub(),requests=[];document.visibilityState='visible';let finish,signal,hold=false;
+ const page=host(async(request,options)=>{requests.push(request.op);if(hold&&request.op==='securityStatus'){signal=options?.signal;return new Promise(resolve=>finish=resolve)}return state(request.engagement)},{events,document});
+ try{
+  page.render();await flush();let tree=page.render(),oldStart=btn(tree,'开始检查').props.onClick;
+  nodes(tree).find(n=>n.props.value==='/home/purge/workspace/test').props.onChange({target:{value:'/home/purge/workspace/resume-draft'}});page.render();
+  hold=true;const pending=btn(page.render(),'刷新').props.onClick();await flush();const previous=finish;
+  document.visibilityState='hidden';document.emit('visibilitychange');assert.equal(signal?.aborted,true);await oldStart();assert.equal(requests.filter(x=>x==='securityStart').length,0);
+  document.visibilityState='visible';document.emit('visibilitychange');await flush();const current=finish;previous({...state(),profile:{...state().profile,revision:20}});await pending;await flush();assert.doesNotMatch(text(page.render()),/当前版本 20/);
+  current({...state(),profile:{...state().profile,revision:2}});await flush();tree=page.render();assert.match(text(tree),/当前版本 2/);assert.ok(nodes(tree).some(n=>n.props.value==='/home/purge/workspace/resume-draft'));assert.equal(requests.filter(x=>x!=='securityStatus').length,0);
+ }finally{page.unmount();assert.equal(events.count,0);assert.equal(document.count,0)}
+});
+test('Nine-hour clock gaps and bounded read failures recover through one read-only heartbeat without replay',async()=>{
+ const events=eventHub(),document=eventHub(),callbacks=new Map(),storage=memoryStorage(),requests=[];document.visibilityState='visible';let clock=Date.now(),fail=false,hold=false,finish;
+ const timers={setInterval(fn,ms){const token={};callbacks.set(token,{fn,ms});return token},clearInterval(token){callbacks.delete(token)}};
+ const page=host(async request=>{requests.push(request.op);if(request.op==='securityStart')throw Error('synthetic uncertain response');if(fail)throw Error('synthetic bounded read failure');if(hold)return new Promise(resolve=>finish=resolve);return state(request.engagement)},{events,document,timers,now:()=>clock,storage});
+ try{
+  page.render();await flush();await btn(page.render(),'开始检查').props.onClick();const receipt=storage.getItem('dsh-security-request-v1:a');assert.ok(receipt);
+  const heartbeat=[...callbacks.values()].find(x=>x.ms===30000);assert.ok(heartbeat,'A lifecycle heartbeat must exist even with no running scan');
+  fail=true;clock+=9*3600000;heartbeat.fn();await flush();assert.match(text(page.render()),/synthetic bounded read failure/);assert.equal(storage.getItem('dsh-security-request-v1:a'),receipt);
+  fail=false;hold=true;clock+=30000;heartbeat.fn();await flush();const count=requests.length;clock+=30000;heartbeat.fn();assert.equal(requests.length,count,'A slow read must not be starved by automatic polling');
+  hold=false;finish(state());await flush();assert.doesNotMatch(text(page.render()),/synthetic bounded read failure/);assert.match(text(page.render()),/恢复未确认操作/);assert.equal(storage.getItem('dsh-security-request-v1:a'),receipt);assert.equal(requests.filter(x=>x==='securityStart').length,1);
+  const before=requests.length;clock-=3600000;heartbeat.fn();await flush();assert.equal(requests.length,before+1,'A backwards wall clock is also a resume signal');
+ }finally{page.unmount();assert.equal(callbacks.size,0)}
+});
+test('Page restoration refreshes selected session metadata without automatically retrying a write',async()=>{
+ const events=eventHub(),document=eventHub(),callbacks=new Map(),requests=[];document.visibilityState='visible';let expired=false;
+ const timers={setInterval(fn,ms){const token={};callbacks.set(token,{fn,ms});return token},clearInterval(token){callbacks.delete(token)}};
+ const page=host(async request=>{requests.push(request.op);return{...state(),profile:{...state().profile,url:'http://127.0.0.1:19001',tools:['zap'],authProfile:'local-login'},authSession:{version:1,profile:'local-login',revision:'12345678-1234-4123-8123-123456789abc',state:expired?'expired':'expiring',expiresAt:new Date(Date.now()+(expired?-10000:100000)).toISOString(),checkedAt:new Date().toISOString()}}},{events,document,timers});
+ try{page.render();await flush();assert.match(text(page.render()),/会话配置即将到期/);expired=true;[...callbacks.values()].find(x=>x.ms===30000).fn();await flush();assert.match(text(page.render()),/会话配置已过期/);const before=requests.length;events.emit('pageshow',{persisted:true});await flush();assert.equal(requests.length,before+1);assert.ok(requests.every(x=>x==='securityStatus'))}finally{page.unmount()}
+});
+test('A completed old-project mutation releases the shared busy state without changing the new project',async()=>{
+ let finish;const writes=[],page=host(async request=>{if(request.op==='securityStart'){writes.push(request.engagement);return new Promise(resolve=>finish=resolve)}return state(request.engagement)});
+ try{page.render();await flush();const pending=btn(page.render(),'开始检查').props.onClick();await flush();page.render({engagement:'b',refreshKey:0});await flush();finish({ok:true,run:{id:'old-project-run',state:'completed'}});await pending;await flush();const tree=page.render();assert.equal(btn(tree,'开始检查').props.disabled,false);assert.deepEqual(writes,['a']);assert.match(text(tree),/当前版本 1/)}finally{page.unmount()}
 });

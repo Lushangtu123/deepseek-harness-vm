@@ -85,6 +85,18 @@ def import_session(name,value):
  except BaseException:
   path.unlink(missing_ok=True);raise
 
+def session_operation(operation,request,value=None):
+ module=(Path(__file__).resolve().parent.parent/'lib/redteam/personal-security-auth.mjs').as_uri()
+ code="import {readFileSync} from 'node:fs';import {readZapAuthStatus,renewZapAuthProfile} from "+json.dumps(module)+";const request=JSON.parse(process.argv[1]),root="+json.dumps(str(AUTH))+";const result="+("readZapAuthStatus(request.profile,request.origin,{root})" if operation=='status' else "renewZapAuthProfile(request,JSON.parse(readFileSync(0,'utf8')),{root})")+";console.log(JSON.stringify(result));"
+ payload=json.dumps(value) if value is not None else None
+ if payload is not None and len(payload.encode())>8192:raise SafeError('配置超过8192字节上限')
+ result=subprocess.run([str(NODE),'--input-type=module','-e',code,json.dumps(request)],input=payload,capture_output=True,text=True,timeout=8)
+ if result.returncode:raise SafeError('私有会话操作未完成；请核对原配置版本、确认项和未使用的新名称')
+ return json.loads(result.stdout)
+
+def renew_session(args,value):
+ return session_operation('renew',{'from':args.from_profile,'to':args.to_profile,'origin':args.origin,'expectedRevision':args.expected_revision,'confirm':args.confirm},value)
+
 def dedicated_vm():
  if sys.platform!='linux' or Path.home()!=HOME or os.getuid()!=1000:raise SafeError('仅在专用Linux VM的purge账号中运行')
 
@@ -125,12 +137,19 @@ def serve(args):
   for sig,handler in prior.items():signal.signal(sig,handler)
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);commands=parser.add_subparsers(dest='command',required=True);imp=commands.add_parser('import-session',help='Read a private session JSON object from stdin; never put credentials in argv');imp.add_argument('name');lab=commands.add_parser('serve',help='Run an owned synthetic login lab until Ctrl-C');lab.add_argument('--port',type=int,default=18780);lab.add_argument('--sink-port',type=int,default=18781);lab.add_argument('--profile');lab.add_argument('--header',choices=['Cookie','Authorization'],default='Cookie');lab.add_argument('--ttl',type=int,default=900);args=parser.parse_args();dedicated_vm()
- if args.command=='import-session':
+ parser=argparse.ArgumentParser(description=__doc__);commands=parser.add_subparsers(dest='command',required=True)
+ imp=commands.add_parser('import-session',help='Read a private session JSON from stdin without overwriting an existing name');imp.add_argument('name')
+ status=commands.add_parser('status',help='Read session expiry metadata only; never sends target HTTP requests');status.add_argument('name');status.add_argument('--origin',required=True)
+ renew=commands.add_parser('renew-session',help='Read only value/expiresAt from private stdin and create a new name; source is preserved');renew.add_argument('from_profile');renew.add_argument('to_profile');renew.add_argument('--origin',required=True);renew.add_argument('--expected-revision',required=True);renew.add_argument('--confirm',action='store_true',required=True)
+ lab=commands.add_parser('serve',help='Run an owned synthetic login lab until Ctrl-C');lab.add_argument('--port',type=int,default=18780);lab.add_argument('--sink-port',type=int,default=18781);lab.add_argument('--profile');lab.add_argument('--header',choices=['Cookie','Authorization'],default='Cookie');lab.add_argument('--ttl',type=int,default=900)
+ args=parser.parse_args();dedicated_vm()
+ if args.command in ['import-session','renew-session']:
   raw=sys.stdin.buffer.read(8193)
   if len(raw)>8192:raise SafeError('配置超过8192字节上限')
-  print(json.dumps(import_session(args.name,json.loads(raw))))
+  value=json.loads(raw);result=import_session(args.name,value) if args.command=='import-session' else renew_session(args,value);print(json.dumps(result))
+ elif args.command=='status':print(json.dumps(session_operation('status',{'profile':args.name,'origin':args.origin})))
  else:serve(args)
+
 if __name__=='__main__':
  try:main()
  except SafeError as error:print(str(error),file=sys.stderr);raise SystemExit(1)

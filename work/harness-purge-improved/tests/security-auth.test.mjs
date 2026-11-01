@@ -51,3 +51,40 @@ test('Verification timeout and cancellation stop pending local requests without 
   const abort=new AbortController(),pending=verifyZapSession(auth,{signal:abort.signal});setTimeout(()=>abort.abort(),30);await assert.rejects(pending,error=>error.name==='AbortError');assert.ok(hits<=2);
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r))}
 });
+
+test('Session status reports ready, expiring and expired metadata without exposing credentials or relaxing scanner expiry',async()=>{
+ const {readZapAuthStatus,readZapAuthProfile}=await api();assert.equal(typeof readZapAuthStatus,'function','Safe session status is missing');
+ const now=Date.now();for(const [delta,expected] of [[600000,'ready'],[120000,'expiring'],[-1000,'expired']]){const f=fixture(session({expiresAt:new Date(now+delta).toISOString()}));try{
+  const status=readZapAuthStatus('local-login',f.value.origin,{root:f.root,now:()=>now});assert.deepEqual(Object.keys(status).sort(),['version','profile','revision','state','expiresAt','checkedAt'].sort());assert.equal(status.state,expected);assert.equal(status.revision,f.value.revision);assert.equal(status.expiresAt,f.value.expiresAt);assert.equal(status.checkedAt,new Date(now).toISOString());assert.ok(!JSON.stringify(status).includes('AUTH_CANARY'));assert.equal(status.value,undefined);
+  if(delta<0)assert.throws(()=>readZapAuthProfile('local-login',f.value.origin,{root:f.root,now:()=>now,allowExpired:true}),'Public scanner reader must remain strict');
+ }finally{f.close()}}
+ const f=fixture();try{fs.chmodSync(f.file,0o644);const status=readZapAuthStatus('local-login',f.value.origin,{root:f.root,now:()=>now});assert.equal(status.state,'unavailable');assert.equal(status.revision,null);assert.equal(status.expiresAt,null);assert.ok(!JSON.stringify(status).includes('CANARY'))}finally{f.close()}
+});
+
+test('Renewal creates a new private profile from an explicitly confirmed expired revision and preserves the source byte-for-byte',async()=>{
+ const {renewZapAuthProfile,readZapAuthProfile}=await api();assert.equal(typeof renewZapAuthProfile,'function','Controlled renewal is missing');const now=Date.now(),f=fixture(session({expiresAt:new Date(now-1000).toISOString()}));try{
+  const original=fs.readFileSync(f.file),input={value:'sid=NEW_CANARY_'+ 'Y'.repeat(32),expiresAt:new Date(now+900000).toISOString()},result=renewZapAuthProfile({from:'local-login',to:'renewed-login',origin:f.value.origin,expectedRevision:f.value.revision,confirm:true},input,{root:f.root,now:()=>now});
+  assert.deepEqual(fs.readFileSync(f.file),original);assert.equal(result.profile,'renewed-login');assert.equal(result.state,'ready');assert.notEqual(result.revision,f.value.revision);assert.ok(!JSON.stringify(result).includes('CANARY'));const fresh=readZapAuthProfile('renewed-login',f.value.origin,{root:f.root,now:()=>now});assert.equal(fresh.value,input.value);assert.equal(fresh.verifyPath,f.value.verifyPath);assert.deepEqual(fresh.excludePaths,f.value.excludePaths);assert.equal(fs.statSync(path.join(f.root,'renewed-login.json')).mode&0o777,0o600);
+ }finally{f.close()}
+});
+
+test('Invalid session names cannot echo credential-like input through safe metadata',async()=>{
+ const {readZapAuthStatus}=await api(),f=fixture();try{const value=readZapAuthStatus('sid=PRIVATE_CANARY_'+ 'X'.repeat(32),f.value.origin,{root:f.root});assert.equal(value.state,'unavailable');assert.equal(value.profile,null);assert.ok(!JSON.stringify(value).includes('PRIVATE_CANARY'))}finally{f.close()}
+});
+
+test('Renewal rejects stale revisions, missing confirmation, policy changes and occupied names without changing either file',async()=>{
+ const {renewZapAuthProfile}=await api(),f=fixture();try{
+  const original=fs.readFileSync(f.file),request={from:'local-login',to:'new-login',origin:f.value.origin,expectedRevision:f.value.revision,confirm:true},input={value:'sid=RENEW_CANARY_'+ 'Z'.repeat(32),expiresAt:new Date(Date.now()+900000).toISOString()};
+  for(const [r,i] of [[{...request,confirm:false},input],[{...request,expectedRevision:'stale'},input],[{...request,to:'local-login'},input],[{...request,to:'../escape'},input],[{...request,origin:'http://127.0.0.1:15001'},input],[request,{...input,verifyPath:'/different'}],[request,{...input,value:'other=RENEW_CANARY_'+ 'Y'.repeat(32)}],[request,{...input,expiresAt:'2000-01-01T00:00:00Z'}],[request,{...input,value:'sid=short'}]]){assert.throws(()=>renewZapAuthProfile(r,i,{root:f.root}),e=>e.code==='AUTH_RENEW'&&!e.message.includes('CANARY'));assert.deepEqual(fs.readFileSync(f.file),original);assert.equal(fs.existsSync(path.join(f.root,'new-login.json')),false)}
+  fs.writeFileSync(path.join(f.root,'new-login.json'),'EXISTING_OWNER_DATA',{mode:0o600});assert.throws(()=>renewZapAuthProfile(request,input,{root:f.root}));assert.equal(fs.readFileSync(path.join(f.root,'new-login.json'),'utf8'),'EXISTING_OWNER_DATA');assert.deepEqual(fs.readFileSync(f.file),original);
+ }finally{f.close()}
+});
+
+test('Concurrent renewal processes cannot overwrite the same new profile or change the source',async()=>{
+ const {spawn}=await import('node:child_process'),f=fixture();try{
+  const original=fs.readFileSync(f.file),request={from:'local-login',to:'new-login',origin:f.value.origin,expectedRevision:f.value.revision,confirm:true},input={value:'sid=CONCURRENT_SYNTHETIC_'+ 'Z'.repeat(32),expiresAt:new Date(Date.now()+900000).toISOString()};
+  const source="import {renewZapAuthProfile} from "+JSON.stringify(moduleUrl.href)+";let s='';for await(const chunk of process.stdin)s+=chunk;try{const v=JSON.parse(s);console.log(JSON.stringify(renewZapAuthProfile(v.request,v.input,{root:v.root})))}catch{process.exitCode=1}";
+  const run=()=>new Promise((resolve,reject)=>{const child=spawn(process.execPath,['--input-type=module','--eval',source],{stdio:['pipe','pipe','pipe']});let out='',err='';child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);child.on('error',reject);child.on('close',code=>resolve({code,out,err}));child.stdin.end(JSON.stringify({request,input,root:f.root}))});
+  const results=await Promise.all([run(),run()]);assert.deepEqual(results.map(x=>x.code).sort(),[0,1]);assert.deepEqual(fs.readFileSync(f.file),original);assert.equal(fs.statSync(path.join(f.root,'new-login.json')).mode&0o777,0o600);for(const result of results)assert.doesNotMatch(result.out+result.err,/CONCURRENT_SYNTHETIC/);
+ }finally{f.close()}
+});

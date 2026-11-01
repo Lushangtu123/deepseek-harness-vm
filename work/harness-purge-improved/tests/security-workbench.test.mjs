@@ -191,3 +191,10 @@ test('Pinned ZAP scans suppress upstream addon downloads instead of changing sca
  const {buildScanPlan}=await api(),plan=buildScanPlan('zap',{repoRoot:'/home/purge/workspace/fixture',url:'http://127.0.0.1:15000'},'/tmp/run',{tools:[{tool:'zap',imageId:'sha256:'+'a'.repeat(64)}]});
  assert.match(plan.args[plan.args.indexOf('-z')+1],/(?:^| )-silent(?: |$)/);
 });
+
+test('Public and model status expose only current private-session expiry metadata without creating audit work',async()=>{
+ const {readZapAuthStatus}=await import('../package/lib/redteam/personal-security-auth.mjs'),{modelSecurityResult}=await import('../package/lib/redteam/personal-security-model.mjs'),f=await fixture();try{
+  const directory=path.join(f.root,'private-auth');fs.mkdirSync(directory,{mode:0o700});const config={version:1,revision:'879b1b08-0a7d-4f84-9f1d-d50cb7f94072',origin:'http://127.0.0.1:15000',header:'Cookie',value:'sid=PRIVATE_STATUS_CANARY_123456789',verifyPath:'/account',loggedInMarker:'HARNESS_AUTHENTICATED',excludePaths:['/logout'],expiresAt:'2000-01-01T00:00:00Z'};fs.writeFileSync(path.join(directory,'local-login.json'),JSON.stringify(config),{mode:0o600});f.bench.authStatus=(name,origin)=>readZapAuthStatus(name,origin,{root:directory});f.bench.saveScope('a',f.scope({authProfile:'local-login'}));
+  const value=f.bench.read('a');assert.equal(value.authSession?.state,'expired','Current status must include expiry metadata');assert.equal(value.authSession.profile,'local-login');assert.equal(value.totalRuns,0);assert.equal(f.bench.read('b').authSession,null);const model=await modelSecurityResult(f.bench,'a',{op:'securityStatus'});assert.equal(model.authSession.state,'expired');assert.ok(Buffer.byteLength(JSON.stringify(model))<=6000);for(const output of [value,model,f.bench.report('a')])assert.ok(!JSON.stringify(output).includes('PRIVATE_STATUS_CANARY'));assert.equal(f.bench.db('a').prepare('SELECT COUNT(*) n FROM security_event').get().n,1);
+ }finally{await f.close()}
+});

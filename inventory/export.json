@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-private-session-parser-text-personal2",
+  "configuration": "merged-private-session-lifecycle-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-auth-zap-20261101",
+  "recoveryPoint": "ready-session-lifecycle-20261101",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -678,6 +678,7 @@
       "ready-security-reload-20261030",
       "ready-security-validated-20261029",
       "ready-security-workflow-20261029",
+      "ready-session-lifecycle-20261101",
       "ready-ssh-channel-20261031",
       "ready-toolchain-20261025"
     ],
@@ -689,10 +690,10 @@
   },
   "hostToolUpdate": {
     "date": "2026-11-01",
-    "baseRecoveryPoint": "ready-auth-zap-20261101",
+    "baseRecoveryPoint": "ready-session-lifecycle-20261101",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "67c1fd856f6ce0f776094005d758ba116c6cf6196c16ce990028388ba025a520",
+      "manage.py": "33bc72e29cadbaddf432b5474feca71f686bea8e95a85dbde8312849b89328de",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -806,6 +807,14 @@
     "verification": "docs/authenticated-zap-verification.json",
     "staticPrivateSessionsOnly": true,
     "semanticParserGapStillPartial": true,
+    "realProjectScansStarted": 0
+  },
+  "sessionLifecycle": {
+    "instructions": "docs/session-lifecycle.md",
+    "verification": "docs/session-lifecycle-verification.json",
+    "staticSessionNewNameImportOnly": true,
+    "expiryMetadataDoesNotProbeTarget": true,
+    "automaticWriteReplay": false,
     "realProjectScansStarted": 0
   }
 }

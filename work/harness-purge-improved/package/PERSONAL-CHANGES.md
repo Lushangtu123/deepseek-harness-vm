@@ -180,3 +180,7 @@ Native real-project acceptance exposed a service-order race: tools captured an e
 VM 脚本 `scripts/security-local-lab.py serve` 提供临时合成表单登录靶场；`import-session NAME` 从标准输入导入私有 JSON，不通过命令行参数接收凭据，不覆盖已有名称，不自动处理真实登录、MFA 或续期。
 
 Semgrep 解析失败文件可获得有限文本补查：最多尝试20个候选文件，每个1MB、总读取8MiB，跳过链接及越界/二进制/超大文件。只匹配 eval、innerHTML 赋值、Function 构造字样；注释及字符串也可能命中。提示为 info/待验证，原 PartialParsing 和不完整覆盖保留，不能据此自动关闭发现。
+
+## 私有会话生命周期与恢复
+
+新增仅元数据的到期状态及显式新名称重新导入；不修改旧私有文件，不通过页面接收凭据。安全审计可见恢复会取消旧状态读取，按已有15秒期限重新核对；30秒周期检查长间隔/时钟回拨、只读失败和所选会话到期，不自动重发写入，保留草稿与未确认请求。使用方法见导出仓库 docs/session-lifecycle.md。

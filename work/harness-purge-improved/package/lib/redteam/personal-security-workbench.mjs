@@ -12,7 +12,7 @@ import {createRuntimeInspector,readRuntimeManifest} from './personal-security-ru
 import {requestSecurityService} from './personal-security-service.mjs';
 import {readSecurityPages} from './personal-security-pages.mjs';
 import {supplementParserGaps,validParserTextSummary} from './personal-security-parser-text.mjs';
-import {readZapAuthProfile,verifyZapSession} from './personal-security-auth.mjs';
+import {readZapAuthProfile,readZapAuthStatus,verifyZapSession} from './personal-security-auth.mjs';
 
 const TOOLS=['semgrep','trivy','zap'],ROOT='/home/purge/tools/security-workbench';
 const digest=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
@@ -238,7 +238,7 @@ function authenticatedResult(profile,result){
 }
 
 export class SecurityWorkbench{
- constructor(store,{workspaceRoot='/home/purge/workspace',runner=runScanner,toolStatus=installedSecurityTools}={}){this.store=store;this.workspaceRoot=resolve(workspaceRoot);this.runner=runner;this.toolStatus=toolStatus;this.initialized=new Set();this.active=null;this.disposed=false}
+ constructor(store,{workspaceRoot='/home/purge/workspace',runner=runScanner,toolStatus=installedSecurityTools,authStatus=readZapAuthStatus}={}){this.store=store;this.workspaceRoot=resolve(workspaceRoot);this.runner=runner;this.toolStatus=toolStatus;this.authStatus=authStatus;this.initialized=new Set();this.active=null;this.disposed=false}
  db(eng){
   if(this.disposed)fail('工作台正在关闭');
   this.store.sessionBindings.validateTarget(eng);
@@ -246,10 +246,10 @@ export class SecurityWorkbench{
  }
  profile(db){const row=db.prepare('SELECT revision,data FROM security_scope WHERE id=1').get();return row?{...JSON.parse(row.data),revision:row.revision}:null}
  read(eng,runtimeOptions={},pages=null){
-  const db=this.db(eng),runView=row=>({...row,details:JSON.parse(row.details)});
+  const db=this.db(eng),profile=this.profile(db),runView=row=>({...row,details:JSON.parse(row.details)});
   const lists=pages===null?{runs:db.prepare('SELECT * FROM security_run ORDER BY started_at DESC,id DESC LIMIT 30').all(),findings:db.prepare('SELECT * FROM security_finding ORDER BY id DESC LIMIT 500').all()}:readSecurityPages(db,eng,pages);
   const extra=pages===null?{}:{activeRun:(row=>row?runView(row):null)(db.prepare("SELECT * FROM security_run WHERE state='running' ORDER BY rowid DESC LIMIT 1").get()),comparisonRuns:db.prepare("SELECT * FROM security_run WHERE state='completed' AND complete=1 ORDER BY rowid DESC LIMIT 30").all().map(runView)};
-  return{ok:true,engagement:eng,totalFindings:db.prepare('SELECT COUNT(*) AS n FROM security_finding').get().n,totalRuns:db.prepare('SELECT COUNT(*) AS n FROM security_run').get().n,profile:this.profile(db),tools:this.toolStatus(runtimeOptions),...lists,runs:lists.runs.map(runView),findings:lists.findings.map(row=>decorateFinding(db,row)),...extra,scopeCoverage:'新增扫描入口；通用Shell、浏览器和原版能力沿用原权限',observedAt:stamp()};
+  return{ok:true,engagement:eng,totalFindings:db.prepare('SELECT COUNT(*) AS n FROM security_finding').get().n,totalRuns:db.prepare('SELECT COUNT(*) AS n FROM security_run').get().n,profile,tools:this.toolStatus(runtimeOptions),authSession:profile?.authProfile?this.authStatus(profile.authProfile,profile.url):null,...lists,runs:lists.runs.map(runView),findings:lists.findings.map(row=>decorateFinding(db,row)),...extra,scopeCoverage:'新增扫描入口；通用Shell、浏览器和原版能力沿用原权限',observedAt:stamp()};
  }
  async wait(eng,input){
   only(input,['id','waitSeconds']);const id=requestId(input.id),seconds=input.waitSeconds??15;if(!Number.isSafeInteger(seconds)||seconds<0||seconds>30)fail('waitSeconds必须是0–30的整数');

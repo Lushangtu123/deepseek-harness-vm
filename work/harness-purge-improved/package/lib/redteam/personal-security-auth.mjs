@@ -1,5 +1,6 @@
+import {randomUUID} from 'node:crypto';
 import {request as httpRequest} from 'node:http';
-import {constants,openSync,closeSync,fstatSync,readSync,lstatSync,realpathSync} from 'node:fs';
+import {constants,openSync,closeSync,fstatSync,readSync,lstatSync,realpathSync,writeFileSync,fsyncSync,unlinkSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {homedir} from 'node:os';
 
@@ -12,7 +13,17 @@ const localOrigin=value=>{
 const localPath=value=>typeof value==='string'&&/^\/[A-Za-z0-9._~/-]{0,299}$/.test(value)&&!value.includes('//')&&!value.split('/').some(part=>part==='.'||part==='..');
 const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
 
-export function readZapAuthProfile(reference,origin,{root=ROOT,now=Date.now}={}){
+function validateProfile(value,origin,current,allowExpired=false){
+  const keys=['version','revision','origin','header','value','verifyPath','loggedInMarker','excludePaths','expiresAt'];
+  if(!record(value)||Object.keys(value).sort().join(',')!==keys.sort().join(',')||value.version!==1||typeof value.revision!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.revision)||value.origin!==origin)throw rejected();
+  if(!['Cookie','Authorization'].includes(value.header)||typeof value.value!=='string'||value.value.length>4096)throw rejected();
+  const credential=value.header==='Cookie'?value.value.match(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+=([A-Za-z0-9._~+/=-]{16,4096})$/):value.value.match(/^Bearer ([A-Za-z0-9._~+/=-]{16,4096})$/);
+  if(!credential||!localPath(value.verifyPath)||typeof value.loggedInMarker!=='string'||!value.loggedInMarker.length||value.loggedInMarker.length>128||/[\x00-\x1f\x7f]/.test(value.loggedInMarker)||!Array.isArray(value.excludePaths)||value.excludePaths.length>10||value.excludePaths.some(path=>!localPath(path)||path==='/'||value.verifyPath===path.replace(/\/+$/,'')||value.verifyPath.startsWith(path.replace(/\/+$/,'')+'/')))throw rejected();
+  const expiry=Date.parse(value.expiresAt);if(typeof value.expiresAt!=='string'||!Number.isFinite(expiry)||!Number.isFinite(current)||!allowExpired&&expiry<=current||expiry>current+31*86400000)throw rejected();
+  return{...value,expiresAt:new Date(expiry).toISOString(),excludePaths:value.excludePaths.map(path=>path.replace(/\/+$/,'')),secretValues:[value.value,credential[1]]};
+}
+
+function readProfile(reference,origin,{root,now,allowExpired=false}){
  let fd;
  try{
   if(!slug(reference)||!localOrigin(origin))throw rejected();
@@ -22,15 +33,39 @@ export function readZapAuthProfile(reference,origin,{root=ROOT,now=Date.now}={})
   const info=fstatSync(fd);if(!info.isFile()||info.uid!==process.getuid()||info.mode&0o077||info.nlink!==1||info.size>8192)throw rejected();
   const buffer=Buffer.alloc(8193),length=readSync(fd,buffer,0,buffer.length,0);if(!length||length>8192)throw rejected();
   const value=JSON.parse(buffer.subarray(0,length).toString('utf8'));
-  const keys=['version','revision','origin','header','value','verifyPath','loggedInMarker','excludePaths','expiresAt'];
-  if(!record(value)||Object.keys(value).sort().join(',')!==keys.sort().join(',')||value.version!==1||typeof value.revision!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.revision)||value.origin!==origin)throw rejected();
-  if(!['Cookie','Authorization'].includes(value.header)||typeof value.value!=='string'||value.value.length>4096)throw rejected();
-  const credential=value.header==='Cookie'?value.value.match(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+=([A-Za-z0-9._~+/=-]{16,4096})$/):value.value.match(/^Bearer ([A-Za-z0-9._~+/=-]{16,4096})$/);
-  if(!credential||!localPath(value.verifyPath)||typeof value.loggedInMarker!=='string'||!value.loggedInMarker.length||value.loggedInMarker.length>128||/[\x00-\x1f\x7f]/.test(value.loggedInMarker)||!Array.isArray(value.excludePaths)||value.excludePaths.length>10||value.excludePaths.some(path=>!localPath(path)||path==='/'||value.verifyPath===path.replace(/\/+$/,'')||value.verifyPath.startsWith(path.replace(/\/+$/,'')+'/')))throw rejected();
-  const expiry=Date.parse(value.expiresAt),current=now();if(typeof value.expiresAt!=='string'||!Number.isFinite(expiry)||expiry<=current||expiry>current+31*86400000)throw rejected();
-  return{...value,expiresAt:new Date(expiry).toISOString(),excludePaths:value.excludePaths.map(path=>path.replace(/\/+$/,'')),secretValues:[value.value,credential[1]]};
+  return validateProfile(value,origin,now(),allowExpired);
  }catch{throw rejected()}
  finally{if(fd!==undefined)closeSync(fd)}
+}
+
+export function readZapAuthProfile(reference,origin,{root=ROOT,now=Date.now}={}){
+ return readProfile(reference,origin,{root,now});
+}
+export function readZapAuthStatus(reference,origin,{root=ROOT,now=Date.now}={}){
+ const current=now(),checkedAt=new Date(Number.isFinite(current)?current:Date.now()).toISOString();
+ try{
+  const auth=readProfile(reference,origin,{root,now:()=>current,allowExpired:true}),remaining=Date.parse(auth.expiresAt)-current;
+  return{version:1,profile:reference,revision:auth.revision,state:remaining<=0?'expired':remaining<=300000?'expiring':'ready',expiresAt:auth.expiresAt,checkedAt};
+ }catch{return{version:1,profile:slug(reference)?reference:null,revision:null,state:'unavailable',expiresAt:null,checkedAt}}
+}
+
+const renewalRejected=()=>Object.assign(Error('重新导入未完成；请核对原配置版本、确认项和未使用的新名称'),{code:'AUTH_RENEW'});
+export function renewZapAuthProfile(request,input,{root=ROOT,now=Date.now}={}){
+ let fd,path,created;
+ try{
+  if(!record(request)||Object.keys(request).sort().join(',')!==['from','to','origin','expectedRevision','confirm'].sort().join(',')||!slug(request.from)||!slug(request.to)||request.from===request.to||request.confirm!==true||!record(input)||Object.keys(input).sort().join(',')!=='expiresAt,value')throw renewalRejected();
+  const current=now(),original=readProfile(request.from,request.origin,{root,now:()=>current,allowExpired:true});
+  if(request.expectedRevision!==original.revision)throw renewalRejected();
+  if(original.header==='Cookie'&&(typeof input.value!=='string'||input.value.split('=',1)[0]!==original.value.split('=',1)[0]))throw renewalRejected();
+  const {secretValues,...policy}=original,updated=validateProfile({...policy,revision:randomUUID(),value:input.value,expiresAt:input.expiresAt},request.origin,current);
+  const {secretValues:ignored,...config}=updated,raw=JSON.stringify(config);if(Buffer.byteLength(raw)>8192)throw renewalRejected();
+  const directory=resolve(root),info=lstatSync(directory);if(!info.isDirectory()||info.isSymbolicLink()||info.uid!==process.getuid()||info.mode&0o077||realpathSync(directory)!==directory)throw renewalRejected();
+  path=join(directory,request.to+'.json');fd=openSync(path,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);created=fstatSync(fd);writeFileSync(fd,raw);fsyncSync(fd);closeSync(fd);fd=undefined;
+  return{version:1,profile:request.to,revision:config.revision,state:Date.parse(config.expiresAt)-current<=300000?'expiring':'ready',expiresAt:config.expiresAt,checkedAt:new Date(current).toISOString()};
+ }catch{
+  if(created)try{const info=lstatSync(path);if(!info.isSymbolicLink()&&info.dev===created.dev&&info.ino===created.ino)unlinkSync(path)}catch{}
+  throw renewalRejected();
+ }finally{if(fd!==undefined)closeSync(fd)}
 }
 
 const verificationFailed=()=>Object.assign(Error('登录状态未确认；检查私有会话、校验页面及到期时间'),{code:'AUTH_VERIFY'});
