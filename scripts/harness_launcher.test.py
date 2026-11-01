@@ -156,4 +156,8 @@ class ScannerMenuTests(unittest.TestCase):
   with patch('builtins.input',side_effect=['2','sha256:'+'a'*64,'1.0.0']),patch.object(launcher,'scanner_update',return_value=({'admitted':False,'changed':False},2)) as run:
    with self.assertRaises(launcher.LauncherNotice):launcher.execute('11')
    self.assertEqual(run.call_count,1);self.assertNotIn('apply',run.call_args.kwargs)
+class StorageMenuTests(unittest.TestCase):
+ def test_storage_menu_only_calls_readonly_preview_without_vm_start(self):
+  self.assertTrue(hasattr(launcher,'storage_preview'),'Storage preview menu missing')
+  with patch.object(launcher,'storage_preview',return_value=0) as preview,patch.object(launcher,'load_manager') as load:launcher.execute('12');preview.assert_called_once_with();load.assert_not_called()
 if __name__=='__main__':unittest.main()

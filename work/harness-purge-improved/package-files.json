@@ -5,7 +5,7 @@
   "LICENSE": "b45f2c5ef6ed471d1dcdf63c10e432d856c8867be2828aece1b383bbece7662a",
   "LICENSE-COMMERCIAL.md": "a0d104262cb7db3c99a3f82a7089a5538237b364a6ece72af34ffc04e7ac522f",
   "NOTICE": "ad63c4be7b12bdc1a43b05d49a831933671be7f2a6f723a6c079e8653a8ac54f",
-  "PERSONAL-CHANGES.md": "e438c01378fe30b1ee2650de7080c3460e55a2cb013f039b57777fe47e7449ad",
+  "PERSONAL-CHANGES.md": "c3510bb0134175c485216ea4e154d400bb529b32617f43a74d69720bbbb7d7e3",
   "README.md": "f932bb24fdcdf0b05196b7fec67bbb884f5ebbb0df04fadcc4890f87a28d6a0d",
   "README.zh-CN.md": "d4df0d6e57d9da7c0e147cf7bd5929b8f2aa6b4a761f0e97096fd989725d983d",
   "bin/dsh-purge.js": "759081efd77e2ac757d759eeb2d14552bfbf925944ee3a53247e36064196e1eb",
@@ -131,5 +131,6 @@
   "scripts/security-parser-check.py": "68229c4f011287bf8e837c07e375600b5d0cbb4bbb69ac556b3001f9f4f85f65",
   "scripts/security-runtime-preflight.mjs": "192ea7181fb7b0d831ff5bfc807b2989ed85682dd889cd8a650197b035fb0eff",
   "scripts/security-scanner-update.py": "4911da365b4359868e6f4f8444f5d9d3bd81da18685dafd5d4210c5319510daf",
-  "scripts/security-service.mjs": "cce18dc2804ccc574f689e8be2b084a9a823a1cc7f25ab87c82ad98dff7c5d43"
+  "scripts/security-service.mjs": "cce18dc2804ccc574f689e8be2b084a9a823a1cc7f25ab87c82ad98dff7c5d43",
+  "scripts/security-storage-preview.py": "3a33a3572846ef2ff00e67bf7f5e779cc110755355ad10f9d2ef8cff71886b5d"
 }

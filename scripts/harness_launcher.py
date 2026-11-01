@@ -20,6 +20,7 @@ Harness 启动与管理
   9  漏洞库检查、更新与中断恢复（需 VM 运行）
   10  关联采样最近 SSH 故障（不重试原命令）
   11  Semgrep 本地候选检查、切换与恢复（不下载镜像）
+  12  存储监测与清理预览（只读，不删除）
   0  退出
 """
 
@@ -118,9 +119,16 @@ def scanner_menu():
  if code!=0:raise LauncherNotice('扫描器维护未确认，请先检查或恢复，不会自动重试。')
 
 
+def storage_preview():
+ from storage_preview import main as storage_main
+ return storage_main([])
+
 def execute(choice):
  if choice=='9':database_menu();return
  if choice=='11':scanner_menu();return
+ if choice=='12':
+  if storage_preview()!=0:raise LauncherNotice('存储预览未完成；未进行清理。')
+  return
  confirmations={
   '2':('启用','原版提示词、权限与沙盒将生效，服务会重启；先等待任务结束。'),
   '3':('停用','将切回日常运行时，服务可能重启；先等待任务结束。'),
@@ -180,8 +188,8 @@ def main():
   try:choice=input('请选择 [1]：').strip() or '1'
   except (EOFError,KeyboardInterrupt):print('\n已退出。');return result
   if choice=='0':return result
-  if choice not in {'1','2','3','4','5','6','7','8','9','10','11'}:
-   print('请输入 0 至 11。');continue
+  if choice not in {'1','2','3','4','5','6','7','8','9','10','11','12'}:
+   print('请输入 0 至 12。');continue
   try:execute(choice);result=0
   except EOFError:print('\n已取消。');return result
   except KeyboardInterrupt:print('\n操作已中断，请核对状态；不会自动重试。');return 130

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-scanner-admission-output-quota-personal2",
+  "configuration": "merged-storage-preview-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-scanner-admission-20261101",
+  "recoveryPoint": "ready-storage-preview-20261101",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -686,6 +686,7 @@
       "ready-security-workflow-20261029",
       "ready-session-lifecycle-20261101",
       "ready-ssh-channel-20261031",
+      "ready-storage-preview-20261101",
       "ready-toolchain-20261025"
     ],
     "historicalSmallVerificationBundlesRetained": true,
@@ -696,10 +697,10 @@
   },
   "hostToolUpdate": {
     "date": "2026-11-01",
-    "baseRecoveryPoint": "ready-scanner-admission-20261101",
+    "baseRecoveryPoint": "ready-storage-preview-20261101",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "da8432905ad34037bfb7eeefbd1b4cb7c2150cb5f7e05344080f11e2a12df16b",
+      "manage.py": "bab4eb80d8e43f41012bb32b9c4a7c43ae4475b59e1fc5dec35915b694ecb8d5",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -837,5 +838,12 @@
     "alreadyLoadedSemgrepCandidateOnly": true,
     "candidateActuallyAdopted": false,
     "realProjectScansStarted": 0
+  },
+  "storagePreview": {
+    "instructions": "docs/storage-preview.md",
+    "verification": "docs/storage-preview-verification.json",
+    "readOnly": true,
+    "deletionAvailable": false,
+    "privateUsageDetailsExported": false
   }
 }
