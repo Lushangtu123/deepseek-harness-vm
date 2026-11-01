@@ -2,7 +2,11 @@
 
 当前部署与本轮完成状态统一见[当前状态](docs/current-status.md)。以下带版本、日期的历史记录保留原结论。
 
-当前配置：**合并版 · personal.2 · 专业环境安装**，更新日期 **2026-10-31（America/Los_Angeles）**。这是专用 Linux VM 的已脱敏配置与代码备份，经用户授权公开发布。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+当前配置：**合并版 · personal.2 · SSH 并发保护**，更新日期 **2026-10-31（America/Los_Angeles）**。这是专用 Linux VM 的已脱敏配置与代码备份，经用户授权公开发布。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+
+## SSH 与 PentAGI 更新
+
+受管 SSH 共用有界跨进程通道，排队超时明确标记未发送，不重放远端命令；部署后三进程共24次真实只读请求全部成功。已完成一次PentAGI真实模型到worker文件产物及结束清理验收。故障定位、恢复点与保留限制见[本轮说明](docs/ssh-pentagi.md)及[结构化记录](docs/ssh-pentagi-verification.json)。
 
 ## 安全审计工作台
 
@@ -24,7 +28,7 @@
 
 任务每页10条、发现每页50条，各自筛选和翻页；搜索按字面匹配，刷新纳入新记录。运行中任务独立保留入口。SSH与私有后台错误增加有界参考号、阶段和耗时；不保存原始命令、源码或凭据，安全审计未知写入结果保留原请求，完整网页重载或关闭重开标签页后仍可明确重试同一请求；不由页面自动重放。
 
-仓库新增`python3 -B scripts/ci.py --suite all`，统一检查导出完整性、Python/Node回归和客户端重建一致性；GitHub推送/PR自动执行，不需要VM或模型密钥。当前本地分别通过219项Python、447项插件Node、129项入口Node回归，不能将重叠的定向检查再累加。云端结果以对应提交的实际运行记录为准。[操作、CI与保留缺口](docs/audit-pagination-diagnostics-ci.md)。
+仓库新增`python3 -B scripts/ci.py --suite all`，统一检查导出完整性、Python/Node回归和客户端重建一致性；GitHub推送/PR自动执行，不需要VM或模型密钥。当前Mac与Linux分别通过230项Python、447项插件Node、129项入口Node回归，不能将重叠的定向检查再累加。云端结果以对应提交的实际运行记录为准。[操作、CI与保留缺口](docs/audit-pagination-diagnostics-ci.md)。
 
 ## 网页重载恢复与SSH采样
 
@@ -50,7 +54,7 @@
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前运行127项插件程序，恢复点`ready-professional-bootstrap-20261031`。独立磁盘副本实际启动，2616项选定稳定摘要与127项程序匹配，原盘换回正常运行；临时测试盘已清理，旧16点保留，共17点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep解析缺口与SSH重置底层原因继续保留。[本轮验收](docs/pet-menu-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
+当前运行127项插件程序，恢复点`ready-ssh-channel-20261031`。独立磁盘副本实际启动，2616项选定稳定摘要与127项程序匹配，原盘换回正常运行；临时副本已清理，旧17点保留，共18点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/ssh-pentagi-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
 
 ## 专业环境安装
 

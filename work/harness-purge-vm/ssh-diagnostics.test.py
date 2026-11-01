@@ -6,6 +6,8 @@ spec=importlib.util.spec_from_file_location('ssh_diagnostic_manager',Path(__file
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class SSHDiagnostics(unittest.TestCase):
+ def setUp(self):
+  folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);root=patch.object(m,'ROOT',Path(folder.name));root.start();self.addCleanup(root.stop)
  def failure(self,stderr='ssh: connect to host 127.0.0.1 port 49223: Connection refused\n',code=255):
   return subprocess.CalledProcessError(code,['ssh','secret-command'],output='private output',stderr=stderr)
  def test_transport_reason_is_retained_without_command_or_output_and_no_retry(self):

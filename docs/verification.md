@@ -1,3 +1,5 @@
+> 当前状态见[统一状态](current-status.md)。2026-10-31新增SSH并发保护与PentAGI端到端合成验收，见[本轮结果](ssh-pentagi-verification.json)。下文按各历史阶段原结论保留。
+
 > 当前版本、恢复点和完成状态统一见[当前状态](current-status.md)。本文的历史验收段落只描述当时结果。
 
 <!-- security-reload:start -->

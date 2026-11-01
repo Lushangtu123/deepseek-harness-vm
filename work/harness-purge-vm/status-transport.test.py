@@ -7,6 +7,8 @@ spec=importlib.util.spec_from_file_location('transport_manager',Path(__file__).w
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class StatusTransport(unittest.TestCase):
+ def setUp(self):
+  folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);root=patch.object(m,'ROOT',Path(folder.name));root.start();self.addCleanup(root.stop)
  def test_real_plugin_scale_inventory_is_not_a_remote_shell_argument(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);folder=root/'recoveries'/m.CURRENT_RECOVERY;folder.mkdir(parents=True)
@@ -32,6 +34,7 @@ class StatusTransport(unittest.TestCase):
    self.assertEqual(args[-2:],['purge@127.0.0.1','python3 -'])
    self.assertIn('StrictHostKeyChecking=yes',args)
    self.assertIn('GlobalKnownHostsFile=/dev/null',args)
-   self.assertEqual(command.call_args.kwargs,{'timeout':10,'input':script})
+   self.assertEqual(command.call_args.kwargs['input'],script)
+   self.assertGreater(command.call_args.kwargs['timeout'],0);self.assertLessEqual(command.call_args.kwargs['timeout'],10)
 
 if __name__=='__main__':unittest.main()

@@ -3,30 +3,40 @@ from unittest.mock import patch,MagicMock
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('manager',Path(__file__).with_name('manage.py'));m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class ConfigurationGate(unittest.TestCase):
+ def setUp(self):
+  folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);root=patch.object(m,'ROOT',Path(folder.name));root.start();self.addCleanup(root.stop)
  def test_accepts_only_dedicated_isolated_configuration(self):m.validate_config(m.expected_config_fixture())
  def test_rejects_any_normal_nic_host_share_or_wrong_vm(self):
   for group,field,value in [('Information','UUID','other'),('Sharing','ClipboardSharing',True),('Sharing','DirectoryShareMode','VirtFS'),('Input','UsbSharing',True)]:
    c=m.expected_config_fixture();c[group][field]=value
    with self.assertRaises(ValueError):m.validate_config(c)
 class GuestClock(unittest.TestCase):
+ def responses(self,values,scripts):
+  values=iter(values)
+  def run(script,**kwargs):
+   scripts.append(script() if callable(script) else script)
+   return MagicMock(stdout=next(values))
+  return run
  def test_small_skew_is_measured_without_changing_time(self):
-  with patch.object(m.time,'time',side_effect=[1000,1000.2]),patch.object(m,'ssh',return_value=MagicMock(stdout='1000.1')) as ssh:
+  scripts=[]
+  with patch.object(m.time,'time',side_effect=[1000,1000.2]),patch.object(m,'ssh',side_effect=self.responses(['1000.1'],scripts)) as ssh:
    result=m.synchronize_clock()
    self.assertFalse(result['adjusted']);self.assertAlmostEqual(result['offsetSeconds'],0)
    self.assertEqual(ssh.call_count,1)
  def test_large_skew_sets_only_guest_time_and_verifies_it(self):
-  with patch.object(m.time,'time',side_effect=[1000,1000.2,1000.3,1000.4,1000.6]),patch.object(m,'ssh',side_effect=[MagicMock(stdout='900'),MagicMock(stdout=''),MagicMock(stdout='1000.5')]) as ssh:
+  scripts=[]
+  with patch.object(m.time,'time',side_effect=[1000,1000.2,1000.3,1000.4,1000.6]),patch.object(m,'ssh',side_effect=self.responses(['900','','1000.5'],scripts)) as ssh:
    result=m.synchronize_clock()
    self.assertTrue(result['adjusted']);self.assertAlmostEqual(result['offsetSeconds'],0)
-   self.assertIn('sudo -n /usr/bin/date -u --set=@1000.300000',ssh.call_args_list[1].args[0])
+   self.assertIn('sudo -n /usr/bin/date -u --set=@1000.300000',scripts[1])
    self.assertEqual(ssh.call_count,3)
  def test_ambiguous_or_slow_measurement_never_sets_time(self):
   for value,clock in [('nan',[1000,1000.1]),('invalid',[1000,1000.1]),('1000',[1000,1003])]:
-   with patch.object(m.time,'time',side_effect=clock),patch.object(m,'ssh',return_value=MagicMock(stdout=value)) as ssh:
+   with patch.object(m.time,'time',side_effect=clock),patch.object(m,'ssh',side_effect=self.responses([value],[])) as ssh:
     with self.assertRaises(ValueError):m.synchronize_clock()
     self.assertEqual(ssh.call_count,1)
  def test_unverified_adjustment_fails_instead_of_claiming_ready(self):
-  with patch.object(m.time,'time',side_effect=[1000,1000.2,1000.3,1000.4,1000.6]),patch.object(m,'ssh',side_effect=[MagicMock(stdout='900'),MagicMock(stdout=''),MagicMock(stdout='900')]):
+  with patch.object(m.time,'time',side_effect=[1000,1000.2,1000.3,1000.4,1000.6]),patch.object(m,'ssh',side_effect=self.responses(['900','','900'],[])):
    with self.assertRaises(RuntimeError):m.synchronize_clock()
 
 class Lifecycle(unittest.TestCase):
@@ -34,7 +44,7 @@ class Lifecycle(unittest.TestCase):
   self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
   guard=patch.object(m,'ROOT',Path(self.temp.name));guard.start();self.addCleanup(guard.stop)
  def test_current_recovery_keeps_the_previous_reviewed_recovery_available(self):
-  self.assertEqual(m.CURRENT_RECOVERY,'ready-professional-bootstrap-20261031');self.assertIn('ready-pet-menu-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-pagination-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-lifecycle-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-background-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-diagnostics-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-workflow-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-validated-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-audit-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-proof-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-resume-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-guard-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-merged-stability-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-merged-capabilities-20261028-r1',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v30-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v29b-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v29-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v28-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v27b-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v27-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v26-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v25-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v24-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v23-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v22-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v21-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v20-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v19-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v18-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v17-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v16-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v15-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v14-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v13-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v12-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v11b-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v11-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v10-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v9-20261026',m.REVIEWED_RECOVERIES)
+  self.assertEqual(m.CURRENT_RECOVERY,'ready-ssh-channel-20261031');self.assertIn('ready-professional-bootstrap-20261031',m.REVIEWED_RECOVERIES);self.assertIn('ready-pet-menu-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-pagination-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-lifecycle-20261030',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-background-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-diagnostics-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-workflow-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-validated-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-security-audit-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-proof-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-resume-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-recovery-guard-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-merged-stability-20261029',m.REVIEWED_RECOVERIES);self.assertIn('ready-merged-capabilities-20261028-r1',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v30-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v29b-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v29-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v28-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v27b-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v27-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v26-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v25-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v24-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v23-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v22-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v21-20261028',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v20-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v19-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v18-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v17-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v16-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v15-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v14-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v13-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v12-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v11b-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v11-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v10-20261027',m.REVIEWED_RECOVERIES);self.assertIn('ready-workbench-v9-20261026',m.REVIEWED_RECOVERIES)
   self.assertEqual(m.recovery_path('ready-workbench-v6-20261026').name,'ready-workbench-v6-20261026')
   self.assertEqual(m.recovery_path('ready-workbench-v5-20261026').name,'ready-workbench-v5-20261026')
   self.assertEqual(m.recovery_path('ready-workbench-v3-20261026').name,'ready-workbench-v3-20261026')

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """On-demand controller for one dedicated VM. Never opens or drives a browser."""
-import argparse,base64,binascii,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading,uuid
+import argparse,base64,binascii,copy,hashlib,inspect,json,math,os,plistlib,re,shutil,socket,stat,subprocess,sys,time,urllib.request,http.cookiejar,tempfile,fcntl,functools,threading,uuid,signal
 from contextlib import contextmanager
 from pathlib import Path
 ROOT=Path.home()/'Library/Application Support/Harness Purge Original'
@@ -12,8 +12,8 @@ LABEL='com.personal.harness-purge-original-egress'
 UTM='/Applications/UTM.app/Contents/MacOS/utmctl'
 PLIST=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
 PYTHON='/opt/homebrew/bin/python3'
-CURRENT_RECOVERY='ready-professional-bootstrap-20261031'
-REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029','ready-recovery-proof-20261029','ready-security-audit-20261029','ready-security-validated-20261029','ready-security-workflow-20261029','ready-security-diagnostics-20261029','ready-security-background-20261029','ready-security-lifecycle-20261030','ready-security-pagination-20261030','ready-security-reload-20261030','ready-security-multiwindow-20261030','ready-pet-corner-20261030','ready-pet-menu-20261030',CURRENT_RECOVERY)
+CURRENT_RECOVERY='ready-ssh-channel-20261031'
+REVIEWED_RECOVERIES=('ready-improved-20261026','ready-workbench-20261026','ready-workbench-v3-20261026','ready-workbench-v4-20261026','ready-workbench-v5-20261026','ready-workbench-v6-20261026','ready-workbench-v7-20261026','ready-workbench-v8-20261026','ready-workbench-v9-20261026','ready-workbench-v10-20261027','ready-workbench-v11-20261027','ready-workbench-v11b-20261027','ready-workbench-v12-20261027','ready-workbench-v13-20261027','ready-workbench-v14-20261027','ready-workbench-v15-20261027','ready-workbench-v16-20261027','ready-workbench-v17-20261027','ready-workbench-v18-20261027','ready-workbench-v19-20261027','ready-workbench-v20-20261027','ready-workbench-v21-20261028','ready-workbench-v22-20261028','ready-workbench-v23-20261028','ready-workbench-v24-20261028','ready-workbench-v25-20261028','ready-workbench-v26-20261028','ready-workbench-v27-20261028','ready-workbench-v27b-20261028','ready-workbench-v28-20261028','ready-workbench-v29-20261028','ready-workbench-v29b-20261028','ready-workbench-v30-20261028','ready-merged-capabilities-20261028','ready-merged-capabilities-20261028-r1','ready-merged-switch-20261029','ready-merged-stability-20261029','ready-recovery-guard-20261029','ready-recovery-resume-20261029','ready-recovery-proof-20261029','ready-security-audit-20261029','ready-security-validated-20261029','ready-security-workflow-20261029','ready-security-diagnostics-20261029','ready-security-background-20261029','ready-security-lifecycle-20261030','ready-security-pagination-20261030','ready-security-reload-20261030','ready-security-multiwindow-20261030','ready-pet-corner-20261030','ready-pet-menu-20261030','ready-professional-bootstrap-20261031',CURRENT_RECOVERY)
 RECOVERY_HELPERS={'manage.py','egress_proxy.py','qemu-image.py','web-entry.mjs','web-health.mjs'}
 RECOVERY_TOOL_FILES={'.dsh-improved/tooling/toolchain-version-checker/'+name for name in ['index.mjs','process.mjs','check_versions.py','catalog.json']}|{'.local/bin/toolchain-versions'}
 RECOVERY_TOOL_FILES|={'tools/security-workbench/'+name for name in ['images.json','rules.json','cache/db/metadata.json']}
@@ -93,9 +93,9 @@ def validate():
 
 def command(argv,**kw):return subprocess.run(argv,check=True,capture_output=True,text=True,timeout=kw.pop('timeout',30),**kw)
 
-SSH_REASONS={'connection-refused':'Connection refused','connection-reset':'Connection reset by peer','connection-closed':'Connection closed','connection-timeout':'Connection timed out','authentication-denied':'Permission denied (publickey)','host-key-mismatch':'Host key verification failed','identity-unavailable':'Dedicated SSH identity unavailable','timeout':'SSH command deadline exceeded','remote-or-unknown-error':'SSH or remote command error; raw command and output omitted'}
+SSH_REASONS={'queue-timeout':'SSH channel busy; request not sent','connection-refused':'Connection refused','connection-reset':'Connection reset by peer','connection-closed':'Connection closed','connection-timeout':'Connection timed out','authentication-denied':'Permission denied (publickey)','host-key-mismatch':'Host key verification failed','identity-unavailable':'Dedicated SSH identity unavailable','timeout':'SSH command deadline exceeded','remote-or-unknown-error':'SSH or remote command error; raw command and output omitted'}
 SSH_PHASES={'general','clock-read','clock-set','service-readiness','access-url','guest-shutdown','runtime-status','recovery-proof','program-update','native-check','diagnostic-sample'}
-SSH_TRANSPORT_STAGES={'connect','identification','authentication','host-key','remote','unknown'}
+SSH_TRANSPORT_STAGES={'queue','connect','identification','authentication','host-key','remote','unknown'}
 REMOTE_EXCEPTIONS={'AssertionError','ValueError','TypeError','KeyError','IndexError','AttributeError','CalledProcessError','TimeoutExpired','OSError','PermissionError','FileNotFoundError','ModuleNotFoundError','ImportError','RuntimeError','SyntaxError'}
 
 def valid_ssh_trace(value):
@@ -171,15 +171,58 @@ def record_ssh_failure(reason,code,elapsed,trace=None):
 class SSHFailure(subprocess.CalledProcessError):
  def __str__(self):return f'VM SSH failed (exit {self.returncode}): '+SSH_REASONS[self.reason]+ssh_trace_text(self)
 
+class SSHNotSent(subprocess.TimeoutExpired):
+ def __str__(self):return f'VM SSH channel wait timed out after {self.timeout} seconds; request not sent'+ssh_trace_text(self)
+
+class SSHChannelWaitExpired(TimeoutError):pass
+
+def terminate_ssh_controller(signum,_frame):raise SystemExit(128+signum)
+
+@contextmanager
+def ssh_channel(deadline):
+ # Separate from the VM lifecycle lock: ordinary read-only status calls use it
+ # too. Keep one channel through command exit; never replay a remote operation.
+ if ROOT.is_symlink() or not ROOT.is_dir() or ROOT.stat().st_uid!=os.getuid() or ROOT.stat().st_mode&0o077:raise ValueError('SSH channel requires the private owner directory')
+ fd=os.open(ROOT/'.ssh-channel.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC|os.O_NONBLOCK,0o600)
+ term_guard=threading.current_thread() is threading.main_thread() and signal.getsignal(signal.SIGTERM)==signal.SIG_DFL
+ try:
+  # execFile's outer deadline sends SIGTERM. Unwind subprocess.run so its
+  # active SSH child is killed/reaped before the channel descriptor closes.
+  if term_guard:signal.signal(signal.SIGTERM,terminate_ssh_controller)
+  info=os.fstat(fd)
+  if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077 or info.st_nlink!=1:raise ValueError('SSH channel lock must be a private regular file')
+  while True:
+   remaining=deadline-time.monotonic()
+   if remaining<=0:raise SSHChannelWaitExpired('SSH channel wait deadline')
+   try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+   except BlockingIOError:time.sleep(min(.02,remaining))
+  yield
+ finally:
+  try:os.close(fd)
+  finally:
+   if term_guard:signal.signal(signal.SIGTERM,signal.SIG_DFL)
+
 class SSHDeadline(subprocess.TimeoutExpired):
  def __str__(self):return f'VM SSH command timed out after {self.timeout} seconds; remote outcome unconfirmed'+ssh_trace_text(self)
 
 def ssh(script,timeout=15,*,input=None,phase='general'):
  if not isinstance(phase,str) or phase not in SSH_PHASES:raise ValueError('Unknown SSH diagnostic phase')
+ if type(timeout) not in (int,float) or not math.isfinite(timeout) or timeout<=0:raise ValueError('SSH timeout must be finite and positive')
  trace={'id':str(uuid.uuid4()),'phase':phase,'remoteException':None,'remoteLine':None,'transportStage':'unknown'}
- argv=['/usr/bin/ssh','-F','/dev/null','-p','49223','-i',str(SETUP/'guest-ed25519'),'-o','IdentityAgent=none','-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','ConnectTimeout=3','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile="'+str(SETUP/'known_hosts')+'"','-o','GlobalKnownHostsFile=/dev/null','purge@127.0.0.1',script]
+ argv=['/usr/bin/ssh','-F','/dev/null','-p','49223','-i',str(SETUP/'guest-ed25519'),'-o','IdentityAgent=none','-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','ConnectTimeout=3','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile="'+str(SETUP/'known_hosts')+'"','-o','GlobalKnownHostsFile=/dev/null','purge@127.0.0.1']
  started=time.monotonic()
- try:return command(argv,timeout=timeout,**({'input':input} if input is not None else {}))
+ try:
+  with ssh_channel(started+timeout):
+   # A trusted local builder samples clock inputs only after queueing.
+   prepared=script() if callable(script) else script
+   if not isinstance(prepared,str):raise ValueError('SSH command must be text')
+   remaining=started+timeout-time.monotonic()
+   if remaining<=0:raise SSHChannelWaitExpired('SSH channel wait deadline')
+   return command([*argv,prepared],timeout=remaining,**({'input':input} if input is not None else {}))
+ except SSHChannelWaitExpired:
+  trace['transportStage']='queue'
+  failure=SSHNotSent('managed SSH request',timeout);failure.trace=trace;failure.diagnosticRecorded=record_ssh_failure('queue-timeout',None,time.monotonic()-started,trace)
+  raise failure from None
  except subprocess.CalledProcessError as error:
   reason='remote-or-unknown-error';raw=error.stderr
   if isinstance(raw,bytes):raw=raw.decode('utf-8','replace')
@@ -386,22 +429,27 @@ def authenticated_ready(url):
  except (OSError,ValueError):return False
 
 def measure_guest_clock():
- before=time.time()
- raw=ssh("python3 -c 'import time; print(time.time())'",timeout=5,phase='clock-read').stdout.strip()
+ before=None
+ def request():
+  nonlocal before
+  before=time.time()
+  return "python3 -c 'import time; print(time.time())'"
+ raw=ssh(request,timeout=5,phase='clock-read').stdout.strip()
  after=time.time()
  guest=float(raw)
- if not math.isfinite(guest) or not 0<=after-before<=2:raise ValueError('Guest clock measurement invalid or too slow; no time change attempted')
+ if before is None or not math.isfinite(guest) or not 0<=after-before<=2:raise ValueError('Guest clock measurement invalid or too slow; no time change attempted')
  return (before+after)/2-guest
 
 def synchronize_clock():
  offset=measure_guest_clock()
  adjusted=abs(offset)>2
  if adjusted:
-  epoch=time.time()
-  if not math.isfinite(epoch) or epoch<=0:raise ValueError('Host clock unavailable')
-  # The trusted SSH endpoint is the dedicated guest. Never set macOS time or
-  # relax the VM network fence to obtain an external NTP connection.
-  ssh(f'sudo -n /usr/bin/date -u --set=@{epoch:.6f} >/dev/null',timeout=8,phase='clock-set')
+  def request():
+   epoch=time.time()
+   if not math.isfinite(epoch) or epoch<=0:raise ValueError('Host clock unavailable')
+   # Only the dedicated guest is set; sample after acquiring its channel.
+   return f'sudo -n /usr/bin/date -u --set=@{epoch:.6f} >/dev/null'
+  ssh(request,timeout=8,phase='clock-set')
   offset=measure_guest_clock()
   if abs(offset)>2:raise RuntimeError('Guest clock adjustment was not verified; startup readiness stopped')
  return {'adjusted':adjusted,'offsetSeconds':round(offset,6)}
