@@ -53,7 +53,7 @@ def evaluate(value,exit_code):
 
 def plan(image,inputs,outputs,name):
  if not isinstance(image,str) or not IMAGE.fullmatch(image) or not re.fullmatch(r'harness-parser-[a-f0-9]{12}',name):raise ProbeError('Local image identity invalid')
- return ['sudo','-n','docker','run','--rm','--pull','never','--name',name,'--label','personal.harness.parser.probe=true','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','128','--memory','1g','--cpus','1','--user','1000:1000','--tmpfs','/tmp:rw,nosuid,nodev,size=134217728','--env','HOME=/tmp','--env','SEMGREP_ENABLE_VERSION_CHECK=0','--env','SEMGREP_SEND_METRICS=off','--mount','type=bind,src='+str(inputs)+',dst=/src,readonly','--mount','type=bind,src='+str(outputs)+',dst=/out','--entrypoint','semgrep',image,'scan','--config','/src/probe-rules.json','--json','--output','/out/result.json','--metrics=off','--disable-version-check','--jobs','1','--timeout','5','--max-target-bytes','1000000','/src']
+ return ['sudo','-n','docker','run','--rm','--pull','never','--name',name,'--log-driver','none','--label','personal.harness.parser.probe=true','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','128','--memory','1g','--cpus','1','--user','1000:1000','--tmpfs','/tmp:rw,nosuid,nodev,size=134217728','--env','HOME=/tmp','--env','SEMGREP_ENABLE_VERSION_CHECK=0','--env','SEMGREP_SEND_METRICS=off','--mount','type=bind,src='+str(inputs)+',dst=/src,readonly','--tmpfs','/out:rw,nosuid,nodev,noexec,size=16777216,uid=1000,gid=1000,mode=0700','--mount','type=bind,src='+str(Path(__file__).with_name('security-output.sh'))+',dst=/policy-output.sh,readonly','--entrypoint','/bin/sh',image,'/policy-output.sh','/out','semgrep','scan','--config','/src/probe-rules.json','--json','--output','/out/result.json','--metrics=off','--disable-version-check','--jobs','1','--timeout','5','--max-target-bytes','1000000','/src']
 
 def read_result(path):
  fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
@@ -80,9 +80,10 @@ def check(image=None):
   for filename,source in FIXTURES.items():(inputs/filename).write_text(source)
   (inputs/'probe-rules.json').write_text(json.dumps(RULES));argv=plan(image,inputs,outputs,name)
   try:
-   try:result=subprocess.run(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45)
+   try:result=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=45)
    except subprocess.TimeoutExpired:raise ProbeError('解析自检超过45秒期限')
-   report=evaluate(read_result(outputs/'result.json'),result.returncode)
+   if len(result.stdout)>2*1024*1024:raise ProbeError('Parser output exceeds limit')
+   envelope=json.loads(result.stdout);report=evaluate(envelope.get('result'),result.returncode)
   finally:
    # Address only this invocation's owned name. A killed Docker client can leave
    # its container alive; deletion is followed by an independent inventory read.
@@ -90,7 +91,7 @@ def check(image=None):
    left=subprocess.run(['sudo','-n','docker','ps','-aq','--filter','name=^/'+name+'$'],capture_output=True,text=True,timeout=8)
    if left.returncode or left.stdout.strip():raise ProbeError('解析自检容器清理未确认')
  if hashlib.sha256(MANIFEST.read_bytes()).hexdigest()!=before:raise ProbeError('Installed scanner identity changed during probe')
- report.update(imageId=image,network='none',sourceExecuted=False,realProjectScanned=False,automaticChanges=False,installedManifestUnchanged=True,temporaryFilesRemoved=True,containerRemoved=True,fixturesSha256={name:hashlib.sha256(raw.encode()).hexdigest() for name,raw in FIXTURES.items()})
+ report.update(imageId=image,network='none',sourceExecuted=False,realProjectScanned=False,automaticChanges=False,installedManifestUnchanged=True,temporaryFilesRemoved=True,containerRemoved=True,outputQuotaBytes=16777216,hostOutputBind=False,fixturesSha256={name:hashlib.sha256(raw.encode()).hexdigest() for name,raw in FIXTURES.items()})
  return report
 
 def main():

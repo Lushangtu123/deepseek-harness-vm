@@ -5,7 +5,7 @@
   "LICENSE": "b45f2c5ef6ed471d1dcdf63c10e432d856c8867be2828aece1b383bbece7662a",
   "LICENSE-COMMERCIAL.md": "a0d104262cb7db3c99a3f82a7089a5538237b364a6ece72af34ffc04e7ac522f",
   "NOTICE": "ad63c4be7b12bdc1a43b05d49a831933671be7f2a6f723a6c079e8653a8ac54f",
-  "PERSONAL-CHANGES.md": "d424e31e66d792e5820fc3595ae11e3087854a83a03ac0fdb9ddde7441cab30d",
+  "PERSONAL-CHANGES.md": "e438c01378fe30b1ee2650de7080c3460e55a2cb013f039b57777fe47e7449ad",
   "README.md": "f932bb24fdcdf0b05196b7fec67bbb884f5ebbb0df04fadcc4890f87a28d6a0d",
   "README.zh-CN.md": "d4df0d6e57d9da7c0e147cf7bd5929b8f2aa6b4a761f0e97096fd989725d983d",
   "bin/dsh-purge.js": "759081efd77e2ac757d759eeb2d14552bfbf925944ee3a53247e36064196e1eb",
@@ -82,7 +82,7 @@
   "lib/redteam/personal-security-report.mjs": "4fd27f8bde2c8bda3948c5829b7d7d4d3352590fb4240eb23c9ae38a90596945",
   "lib/redteam/personal-security-runtime.mjs": "c0b1c05fe2e41ffef47556b237c9bb862e2d14f8ace94d4799a3dd2dcabff531",
   "lib/redteam/personal-security-service.mjs": "e9883dd6167a71f4a48c1fc276217e8e6f0ed675f9a5a04ce83c14b82bc73d4d",
-  "lib/redteam/personal-security-workbench.mjs": "98bff2ee1de5d3a6eda3cf0091259574ac6a00689371dd83fb5d86db3cb5bdc9",
+  "lib/redteam/personal-security-workbench.mjs": "21bab355353e9784ab39d1869799c9eab3850958b89e960c18d7b101f73dee93",
   "lib/redteam/personal-session-bindings.mjs": "ab18604ac7a30583939ee905ffa77bef26bb6c9d28ef2f9a1223f7f2e277d34a",
   "lib/redteam/personal-session-resolution.mjs": "eee3996e6531646424c8915267e547f5f9235009253f5938264f959ec5d09919",
   "lib/redteam/personal-toolchain-status.mjs": "95f433327a75f4e02498194f765830007a6b4936166c51734deb104f7c17c6f5",
@@ -127,7 +127,9 @@
   "scripts/patch-client-dock.mjs": "31da200312b7f715f5ea98da8885b2db94193b8ebb9fb582d9f0ca076458ae3c",
   "scripts/redteam-setup.sh": "a35da25c76aadd9954615123bf8318e3624ad02d6d434ad0fc7ac6fb3beb4855",
   "scripts/security-local-lab.py": "ccf41c979001ebb35f9e6e4e267c7db291869dc0ef5a68a8fb03850a5b011baa",
-  "scripts/security-parser-check.py": "b78b7c3a4118bea3a182bd58800bee1d2a8cde5828d2005a9af41f24a0e80c33",
+  "scripts/security-output.sh": "3a4b8ab32794909a3b736692496c36ff5cd390005eaf404413c5f4d222a603da",
+  "scripts/security-parser-check.py": "68229c4f011287bf8e837c07e375600b5d0cbb4bbb69ac556b3001f9f4f85f65",
   "scripts/security-runtime-preflight.mjs": "192ea7181fb7b0d831ff5bfc807b2989ed85682dd889cd8a650197b035fb0eff",
+  "scripts/security-scanner-update.py": "4911da365b4359868e6f4f8444f5d9d3bd81da18685dafd5d4210c5319510daf",
   "scripts/security-service.mjs": "cce18dc2804ccc574f689e8be2b084a9a823a1cc7f25ab87c82ad98dff7c5d43"
 }

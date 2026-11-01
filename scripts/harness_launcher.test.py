@@ -145,4 +145,15 @@ class LauncherTests(unittest.TestCase):
    self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout.strip(),'RELATIVE_LAUNCH_OK')
 
 
+import harness_launcher as launcher
+class ScannerMenuTests(unittest.TestCase):
+ def test_candidate_menu_cancellation_never_loads_manager(self):
+  self.assertTrue(hasattr(launcher,'scanner_menu'),'Scanner menu is missing')
+  with patch('builtins.input',side_effect=['0']),patch.object(launcher,'load_manager') as load:
+   launcher.execute('11');load.assert_not_called()
+ def test_rejected_candidate_never_reaches_apply(self):
+  self.assertTrue(hasattr(launcher,'scanner_update'),'Scanner entry is missing')
+  with patch('builtins.input',side_effect=['2','sha256:'+'a'*64,'1.0.0']),patch.object(launcher,'scanner_update',return_value=({'admitted':False,'changed':False},2)) as run:
+   with self.assertRaises(launcher.LauncherNotice):launcher.execute('11')
+   self.assertEqual(run.call_count,1);self.assertNotIn('apply',run.call_args.kwargs)
 if __name__=='__main__':unittest.main()

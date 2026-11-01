@@ -3,6 +3,7 @@ import {existsSync,readFileSync,realpathSync,mkdirSync,writeFileSync,lstatSync,o
 import {join,resolve,relative,sep} from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
+import {fileURLToPath} from 'node:url';
 import {createScanSnapshot,compareScanSnapshots} from './personal-security-comparison.mjs';
 import {modelSecurityResult} from './personal-security-model.mjs';
 import {securityReportSummary,formatSecurityReport} from './personal-security-report.mjs';
@@ -67,19 +68,19 @@ export function parseScanOutput(tool,value,secrets=[]){
 export function buildScanPlan(tool,profile,runDir,manifest,authPolicy=null){
  if(!TOOLS.includes(tool))fail('扫描器无效');
  const installed=manifest?.tools?.find(row=>row.tool===tool);if(!/^sha256:[a-f0-9]{64}$/.test(installed?.imageId||''))fail('扫描器尚未安装或摘要未确认');
- const args=['-n','/usr/bin/docker','run','--rm','--pull','never','--name','dsh-sec-'+runDir.split('/').pop(),'--label','personal.harness.security=true','--cpus','1','--memory',tool==='zap'?'1100m':'768m','--pids-limit','160','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,size=268435456','--user','1000:1000','--mount','type=bind,src='+profile.repoRoot+',dst=/src,readonly','--mount','type=bind,src='+runDir+',dst=/out'];
+ const args=['-n','/usr/bin/docker','run','--rm','--pull','never','--log-driver','none','--name','dsh-sec-'+runDir.split('/').pop(),'--label','personal.harness.security=true','--cpus','1','--memory',tool==='zap'?'1100m':'768m','--pids-limit','160','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,size=268435456','--user','1000:1000','--mount','type=bind,src='+profile.repoRoot+',dst=/src,readonly','--mount','type=bind,src='+runDir+',dst=/input,readonly','--mount','type=bind,src='+fileURLToPath(new URL('../../scripts/security-output.sh',import.meta.url))+',dst=/policy-output.sh,readonly'];
  let command;
  if(tool==='semgrep'){
   args.push('--network','none','--mount','type=bind,src='+join(ROOT,'rules.json')+',dst=/policy/rules.json,readonly','--env','SEMGREP_SEND_METRICS=off','--env','SEMGREP_ENABLE_VERSION_CHECK=0','--env','HOME=/tmp');
-  args.push('--entrypoint','semgrep');command=['scan','--config','/policy/rules.json','--json','--output','/out/result.json','--metrics=off','--disable-version-check','--jobs','1','--timeout','5','--max-target-bytes','1000000','/src'];
+  command=['semgrep','scan','--config','/policy/rules.json','--json','--output','/out/result.json','--metrics=off','--disable-version-check','--jobs','1','--timeout','5','--max-target-bytes','1000000','/src'];
  }else if(tool==='trivy'){
-  args.push('--network','none','--mount','type=bind,src='+join(ROOT,'cache/db')+',dst=/tmp/trivy/db,readonly','--entrypoint','trivy');
-  command=['filesystem','--cache-dir','/tmp/trivy','--cache-backend','memory','--skip-db-update','--skip-java-db-update','--skip-check-update','--offline-scan','--scanners','vuln,misconfig,secret','--format','json','--output','/out/result.json','/src'];
+  args.push('--network','none','--mount','type=bind,src='+join(ROOT,'cache/db')+',dst=/tmp/trivy/db,readonly',);
+  command=['trivy','filesystem','--cache-dir','/tmp/trivy','--cache-backend','memory','--skip-db-update','--skip-java-db-update','--skip-check-update','--offline-scan','--scanners','vuln,misconfig,secret','--format','json','--output','/out/result.json','/src'];
  }else{
-  if(!profile.url)fail('请先配置已授权的VM本地URL');args.push('--network','host','--workdir','/out','--tmpfs','/home/zap/.ZAP:rw,uid=1000,gid=1000,size=67108864','--env','HOME=/tmp','--env','JAVA_OPTS=-Xmx640m','--mount','type=bind,src='+runDir+',dst=/zap/wrk');
-  args.push('--entrypoint','zap-baseline.py');command=['--autooff','--hook','/out/loopback-hook.py','-t',profile.url,'-n','/zap/wrk/scope.context','-m','1','-T','3','-P','49090','-J','result.json','-z','-silent -Xmx640m -dir /tmp/zap -host 127.0.0.1 -config autoupdate.checkOnStart=false'];
+  if(!profile.url)fail('请先配置已授权的VM本地URL');args.push('--network','host','--workdir','/zap/wrk','--tmpfs','/home/zap/.ZAP:rw,uid=1000,gid=1000,size=67108864','--env','HOME=/tmp','--env','JAVA_OPTS=-Xmx640m');
+  command=['zap-baseline.py','--autooff','--hook','/input/loopback-hook.py','-t',profile.url,'-n','/input/scope.context','-m','1','-T','3','-P','49090','-J','result.json','-z','-silent -Xmx640m -dir /tmp/zap -host 127.0.0.1 -config autoupdate.checkOnStart=false'];
  }
- args.push(installed.imageId,...command);return{executable:'/usr/bin/sudo',args,outputFile:join(runDir,'result.json'),containerName:'dsh-sec-'+runDir.split('/').pop(),version:installed.version||'未确认',coverageKey:digest([tool,installed.imageId,manifest.rulesSha256,manifest.database?.digest||null,profile.repoRoot,tool==='zap'?profile.url:null,...(tool==='semgrep'?['parser-text-1']:[]),...(tool==='trivy'?['package-identity-1']:[]),...(tool==='zap'?['pinned-addons-1']:[]),...(tool==='zap'&&profile.authProfile?['private-session-1',profile.authProfile,authPolicy?.revision||'unverified']:[])])};
+ const output=tool==='zap'?'/zap/wrk':'/out';args.push('--tmpfs',output+':rw,nosuid,nodev,noexec,size=67108864,uid=1000,gid=1000,mode=0700','--entrypoint','/bin/sh',installed.imageId,'/policy-output.sh',output,...command);return{outputQuotaBytes:67108864,executable:'/usr/bin/sudo',args,outputFile:join(runDir,'result.json'),containerName:'dsh-sec-'+runDir.split('/').pop(),version:installed.version||'未确认',coverageKey:digest([tool,installed.imageId,manifest.rulesSha256,manifest.database?.digest||null,profile.repoRoot,tool==='zap'?profile.url:null,...(tool==='semgrep'?['parser-text-1']:[]),...(tool==='trivy'?['package-identity-1']:[]),...(tool==='zap'?['pinned-addons-1']:[]),...(tool==='zap'&&profile.authProfile?['private-session-1',profile.authProfile,authPolicy?.revision||'unverified']:[])])};
 }
 
 function manifestOf(){try{return readRuntimeManifest(ROOT)}catch{return{tools:[]}}}
@@ -116,10 +117,10 @@ import json, re, os, time, datetime
 from pathlib import Path
 _auth_state = {'version': 1, 'revision': None, 'before': False, 'after': False, 'checkedRequests': 0}
 # The pinned CLI loads ModuleType through SourceFileLoader without __file__.
-# Docker's fixed /out working directory is the writable, per-run bind mount.
+# Fixed writable working directory is bounded container tmpfs; private input is read-only.
 _auth_directory = Path.cwd()
 def _auth_config():
-    with open(_auth_directory / '.session.json', 'rb') as source:
+    with open(Path('/input') / '.session.json', 'rb') as source:
         raw = source.read(8193)
     if len(raw) > 8192:
         raise RuntimeError('HARNESS_AUTH_CONFIG_INVALID')
@@ -169,9 +170,6 @@ def zap_pre_shutdown(zap):
         _auth_save()
 `: '');
 }
-function readAuthReceipt(runDir){
- try{const path=join(runDir,'auth-check.json'),info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.size>1024)return null;return JSON.parse(readFileSync(path,'utf8'))}catch{return null}
-}
 async function runScanner(tool,profile,{signal,runDir}){
  const rootIdentity=lstatSync(profile.repoRoot);if(!rootIdentity.isDirectory()||rootIdentity.isSymbolicLink()||realpathSync(profile.repoRoot)!==profile.repoRoot)throw Object.assign(Error('仓库目录已变化'),{code:'SCAN_SCOPE_CHANGED'});
  const deadline=performance.now()+240000,auth=tool==='zap'&&profile.authProfile?readZapAuthProfile(profile.authProfile,profile.url):null;
@@ -185,7 +183,7 @@ async function runScanner(tool,profile,{signal,runDir}){
   child.once('error',()=>{clearTimeout(timer);resolveStop(false)});
   child.once('close',code=>{clearTimeout(timer);resolveStop(code===0)});
  }));
- let bytes=0,timedOut=false,overflow=false,exit;
+ let bytes=0,timedOut=false,overflow=false,exit,chunks=[],envelope;
  try{
   if(tool==='zap'){
    writeFileSync(join(runDir,'scope.context'),buildZapContext(profile.url,auth?.excludePaths??[]),{mode:0o600});
@@ -201,22 +199,24 @@ async function runScanner(tool,profile,{signal,runDir}){
    const timer=setTimeout(()=>{timedOut=true;terminate()},Math.max(1,deadline-performance.now()));
    const abort=()=>terminate();signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
    const cleanup=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort)};
-   const consume=chunk=>{bytes+=chunk.length;if(bytes>4*1024*1024&&!overflow){overflow=true;terminate()}};
-   child.stdout.on('data',consume);child.stderr.on('data',consume);
+   const consume=chunk=>{bytes+=chunk.length;if(bytes>8*1024*1024+65536&&!overflow){overflow=true;terminate()}};
+   child.stdout.on('data',chunk=>{consume(chunk);if(!overflow)chunks.push(chunk)});child.stderr.on('data',consume);
    child.once('error',()=>{cleanup();reject(Object.assign(Error('扫描进程未能启动'),{code:'SCAN_SPAWN'}))});
    child.once('close',async code=>{cleanup();if(termination&&!await termination)reject(Object.assign(Error('容器停止未确认，请先检查VM运行状态'),{code:'STOP_UNCONFIRMED'}));else done(code)});
   });
   if(signal.aborted)throw Error('已取消');if(timedOut)throw Object.assign(Error('扫描超时'),{code:'SCAN_TIMEOUT'});if(overflow)throw Object.assign(Error('输出超出上限'),{code:'SCAN_OUTPUT_LIMIT'});
-  const accepted=tool==='zap'?[0,1,2]:[0];if(auth&&!accepted.includes(exit)&&!readAuthReceipt(runDir)?.before)throw Object.assign(Error('认证扫描未确认'),{code:'AUTH_VERIFY'});if(!accepted.includes(exit))throw Object.assign(Error('扫描未完成'),{code:exit===137?'SCAN_MEMORY_LIMIT':'SCAN_EXIT_FAILURE'});
-  const info=lstatSync(plan.outputFile);if(!info.isFile()||info.isSymbolicLink()||info.size>8*1024*1024)throw Error('结果文件无效');
-  const raw=JSON.parse(readFileSync(plan.outputFile,'utf8')),parsed=parseScanOutput(tool,raw,auth?.secretValues??[]);
+  if(exit===137)throw Object.assign(Error('扫描被内存上限终止'),{code:'SCAN_MEMORY_LIMIT'});
+  try{envelope=JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{if(exit===73)throw Object.assign(Error('结果超出上限'),{code:'SCAN_OUTPUT_LIMIT'});throw Object.assign(Error('扫描结果未确认'),{code:'SCAN_OUTPUT_INVALID'})}
+  const accepted=tool==='zap'?[0,1,2]:[0];if(auth&&!accepted.includes(exit)&&!envelope?.authentication?.before)throw Object.assign(Error('认证扫描未确认'),{code:'AUTH_VERIFY'});if(!accepted.includes(exit))throw Object.assign(Error('扫描未完成'),{code:exit===137?'SCAN_MEMORY_LIMIT':'SCAN_EXIT_FAILURE'});
+  if(!envelope?.result||typeof envelope.result!=='object'||Array.isArray(envelope.result)||Object.keys(envelope).sort().join(',')!=='authentication,result')throw Error('结果文件无效');
+  const raw=envelope.result,parsed=parseScanOutput(tool,raw,auth?.secretValues??[]);
   if(tool==='semgrep'&&!parsed.complete){
    const supplement=supplementParserGaps(profile.repoRoot,raw.errors,{signal,deadline,identity:rootIdentity});parsed.supplemental=supplement.summary;parsed.findings.push(...supplement.findings);
    if(parsed.findings.length>2000){parsed.findings=parsed.findings.slice(0,2000);const d=parsed.diagnostics;d.total++;d.items=[{code:'finding-limit-2000',path:'',line:null},...d.items].slice(0,20);d.truncated=d.total>d.items.length}
   }
   if(auth){
    let after=null;try{after=await verifyZapSession(auth,{signal,timeoutMs:Math.min(3000,deadline-performance.now())})}catch(error){if(signal.aborted)throw error}
-   const proof=readAuthReceipt(runDir),matched=proof?.version===1&&proof?.revision===auth.revision;
+   const proof=envelope.authentication,matched=proof?.version===1&&proof?.revision===auth.revision;
    parsed.authentication={version:1,profile:profile.authProfile,revision:auth.revision,before:before?.verified===true,after:after?.verified===true,scannerBefore:matched&&proof.before===true,scannerAfter:matched&&proof.after===true,checkedRequests:matched&&proof.checkedRequests===2?2:0};
   }
   let revisionRef='工作区未确认';try{revisionRef=execFileSync('/usr/bin/git',['-C',profile.repoRoot,'rev-parse','HEAD'],{timeout:3000,encoding:'utf8'}).trim()}catch{}
@@ -312,7 +312,7 @@ export class SecurityWorkbench{
    }catch(error){db.exec('ROLLBACK TO security_results;RELEASE security_results');throw error}
   }).catch(error=>{
    if(error?.code==='STOP_UNCONFIRMED')this.blocked=true;
-   const messages={SCAN_SCOPE_CHANGED:'仓库目录已变化；请重新核对项目范围',AUTH_PROFILE:'私有认证配置不可用、已过期或与本地范围不匹配',AUTH_VERIFY:'认证状态未确认，扫描未完成',AUTH_CLEANUP:'私有会话副本清理未确认，请检查VM运行目录',STOP_UNCONFIRMED:'容器停止未确认，请检查VM运行状态',SCAN_SPAWN:'扫描进程未能启动',SCAN_TIMEOUT:'扫描达到4分钟上限',SCAN_OUTPUT_LIMIT:'扫描日志超过4MiB上限',SCAN_MEMORY_LIMIT:'扫描被内存上限终止',SCAN_EXIT_FAILURE:'扫描器返回失败，请检查VM本地运行记录'};
+   const messages={SCAN_SCOPE_CHANGED:'仓库目录已变化；请重新核对项目范围',AUTH_PROFILE:'私有认证配置不可用、已过期或与本地范围不匹配',AUTH_VERIFY:'认证状态未确认，扫描未完成',AUTH_CLEANUP:'私有会话副本清理未确认，请检查VM运行目录',STOP_UNCONFIRMED:'容器停止未确认，请检查VM运行状态',SCAN_SPAWN:'扫描进程未能启动',SCAN_TIMEOUT:'扫描达到4分钟上限',SCAN_OUTPUT_LIMIT:'扫描结果超过8MiB读取上限或输出空间限制',SCAN_MEMORY_LIMIT:'扫描被内存上限终止',SCAN_EXIT_FAILURE:'扫描器返回失败，请检查VM本地运行记录'};
    if(!this.disposed)db.prepare('UPDATE security_run SET state=?,finished_at=?,error_code=? WHERE id=?').run(controller.signal.aborted&&!this.blocked?'cancelled':'failed',stamp(),this.blocked?messages.STOP_UNCONFIRMED:controller.signal.aborted?'任务已取消':messages[error?.code]||'扫描结果未完成或格式无效',runId)
   }).finally(()=>{if(this.active?.id===runId)this.active=null});
   this.active.promise=promise;return{id:runId,state:'running'};

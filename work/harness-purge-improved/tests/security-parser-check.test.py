@@ -33,7 +33,7 @@ class ParserProbeTest(unittest.TestCase):
    self.assertFalse(result['parserReady'])
  def test_container_plan_is_offline_readonly_pinned_and_never_pulls(self):
   m=self.module();args=m.plan('sha256:'+'a'*64,Path('/tmp/owned/inputs'),Path('/tmp/owned/output'),'harness-parser-123456789abc')
-  for option,value in [('--pull','never'),('--network','none'),('--cap-drop','ALL'),('--user','1000:1000'),('--entrypoint','semgrep')]:self.assertEqual(args[args.index(option)+1],value)
+  for option,value in [('--pull','never'),('--network','none'),('--cap-drop','ALL'),('--user','1000:1000'),('--entrypoint','/bin/sh')]:self.assertEqual(args[args.index(option)+1],value)
   self.assertIn('--read-only',args);self.assertIn('type=bind,src=/tmp/owned/inputs,dst=/src,readonly',args);self.assertNotIn('--privileged',args)
   for image in ['--privileged','semgrep/semgrep:latest','sha256:short']:
    with self.assertRaises(m.ProbeError):m.plan(image,Path('/tmp/in'),Path('/tmp/out'),'harness-parser-123456789abc')
@@ -63,4 +63,9 @@ class ParserProbeTest(unittest.TestCase):
   for kind in ['Timeout','OutOfMemory','RuleParseError']:
    value=self.fixture(m,False);value['errors']=[{'type':kind,'path':'/src/invalid.mjs'}];result=m.evaluate(value,0);self.assertFalse(result['controlsPassed'],kind);self.assertFalse(result['parserReady'],kind)
   value=self.fixture(m,False);value['paths']['scanned'].remove('/src/invalid.mjs');self.assertFalse(m.evaluate(value,0)['parserReady'])
+ def test_output_quota_is_container_tmpfs_with_readonly_inputs_and_no_docker_log_file(self):
+  m=self.module();args=m.plan('sha256:'+'a'*64,Path('/tmp/in'),Path('/tmp/old-output'),'harness-parser-123456789abc')
+  self.assertIn('/out:rw,nosuid,nodev,noexec,size=16777216,uid=1000,gid=1000,mode=0700',args)
+  self.assertEqual(args[args.index('--log-driver')+1],'none')
+  self.assertFalse(any('src=/tmp/old-output' in item for item in args));self.assertTrue(any('security-output.sh' in item and 'readonly' in item for item in args))
 if __name__=='__main__':unittest.main()

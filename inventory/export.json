@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-parser-selfcheck-personal2",
+  "configuration": "merged-scanner-admission-output-quota-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-parser-probe-20261101",
+  "recoveryPoint": "ready-scanner-admission-20261101",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -674,6 +674,7 @@
       "ready-recovery-guard-20261029",
       "ready-recovery-proof-20261029",
       "ready-recovery-resume-20261029",
+      "ready-scanner-admission-20261101",
       "ready-security-audit-20261029",
       "ready-security-background-20261029",
       "ready-security-diagnostics-20261029",
@@ -695,10 +696,10 @@
   },
   "hostToolUpdate": {
     "date": "2026-11-01",
-    "baseRecoveryPoint": "ready-parser-probe-20261101",
+    "baseRecoveryPoint": "ready-scanner-admission-20261101",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "bed5d56d2872249cea54ab118487eed84d2f83218e029e0b1ca5088b71258d6b",
+      "manage.py": "da8432905ad34037bfb7eeefbd1b4cb7c2150cb5f7e05344080f11e2a12df16b",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -828,6 +829,13 @@
     "manualOfflineSyntheticCandidateCheckOnly": true,
     "scannerDefectRemains": true,
     "scannerImageChanged": false,
+    "realProjectScansStarted": 0
+  },
+  "scannerAdmission": {
+    "instructions": "docs/scanner-admission.md",
+    "verification": "docs/scanner-admission-verification.json",
+    "alreadyLoadedSemgrepCandidateOnly": true,
+    "candidateActuallyAdopted": false,
     "realProjectScansStarted": 0
   }
 }

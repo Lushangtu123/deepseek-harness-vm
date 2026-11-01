@@ -19,6 +19,7 @@ Harness 启动与管理
   8  修复合并版 pnpm 配置（仅已有构建配置，需 VM 运行）
   9  漏洞库检查、更新与中断恢复（需 VM 运行）
   10  关联采样最近 SSH 故障（不重试原命令）
+  11  Semgrep 本地候选检查、切换与恢复（不下载镜像）
   0  退出
 """
 
@@ -93,8 +94,33 @@ def database_menu():
  if database_update(args)!=0:raise LauncherNotice('漏洞库维护未完成，请根据上方提示核对状态。')
 
 
+def scanner_update(**kwargs):
+ from security_scanner_update import run_candidate
+ return run_candidate(**kwargs)
+
+def scanner_menu():
+ print('Semgrep 候选维护：1 检查（默认，不切换）；2 检查后切换；3 恢复中断前的镜像清单；0 返回。')
+ choice=input('请选择 [1]：').strip() or '1'
+ if choice=='0':return
+ if choice not in {'1','2','3'}:raise LauncherNotice('请输入 0 至 3。')
+ if choice=='3':
+  if input('结束任务后，输入“恢复扫描器”继续：').strip()!='恢复扫描器':print('已取消。');return
+  value,code=scanner_update(recover=True,confirm=True)
+ else:
+  image=input('VM 已加载候选的 sha256:镜像ID：').strip();version=input('候选程序精确版本：').strip()
+  value,code=scanner_update(image_id=image,version=version);print(json.dumps(value,ensure_ascii=False,indent=2))
+  if code!=0 or value.get('admitted') is not True:raise LauncherNotice('候选未通过自检；原镜像清单保持不变。')
+  if choice=='1':return
+  print('自检仅覆盖合成解析与规则控制。切换前会再次自检、确认无任务并保留原清单；不会下载镜像。')
+  if input('输入“切换扫描器”继续，其他输入取消：').strip()!='切换扫描器':print('已取消。');return
+  value,code=scanner_update(image_id=image,version=version,expected_manifest=value['manifestSha256'],apply=True,confirm=True)
+ print(json.dumps(value,ensure_ascii=False,indent=2))
+ if code!=0:raise LauncherNotice('扫描器维护未确认，请先检查或恢复，不会自动重试。')
+
+
 def execute(choice):
  if choice=='9':database_menu();return
+ if choice=='11':scanner_menu();return
  confirmations={
   '2':('启用','原版提示词、权限与沙盒将生效，服务会重启；先等待任务结束。'),
   '3':('停用','将切回日常运行时，服务可能重启；先等待任务结束。'),
@@ -154,8 +180,8 @@ def main():
   try:choice=input('请选择 [1]：').strip() or '1'
   except (EOFError,KeyboardInterrupt):print('\n已退出。');return result
   if choice=='0':return result
-  if choice not in {'1','2','3','4','5','6','7','8','9','10'}:
-   print('请输入 0 至 10。');continue
+  if choice not in {'1','2','3','4','5','6','7','8','9','10','11'}:
+   print('请输入 0 至 11。');continue
   try:execute(choice);result=0
   except EOFError:print('\n已取消。');return result
   except KeyboardInterrupt:print('\n操作已中断，请核对状态；不会自动重试。');return 130

@@ -8,6 +8,10 @@
 
 新增专用VM内的离线自检命令，用5个合成正反例核对固定镜像或明确指定的已加载候选。当前原复现仍PartialParsing，工具如实返回exit2；未替换扫描器或改写项目。[使用方法](docs/semgrep-parser-check.md) · [验收记录](docs/semgrep-parser-check-verification.json)。
 
+## 扫描器候选准入与输出限制
+
+Mac统一启动器选项11可检查并显式切换已加载Semgrep候选，保留原清单和中断恢复；候选必须通过自检。本轮未更换镜像，解析缺口保留。扫描器输出64MiB、自检16MiB临时空间，容量写满控制和三种合成扫描均已验收。[使用方法](docs/scanner-admission.md) · [验收记录](docs/scanner-admission-verification.json)。
+
 ## 会话到期与页面恢复
 
 安全审计新增会话到期提醒和显式新名称重新导入；页面恢复只读核对，保留草稿与未确认操作，不自动重发写入。真实 VM 40 秒后台暂停后界面自行恢复，九小时仅为时钟模拟测试。[使用方法](docs/session-lifecycle.md) · [验收记录](docs/session-lifecycle-verification.json)。
@@ -66,7 +70,7 @@
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前运行131项插件程序，恢复点`ready-parser-probe-20261101`。独立磁盘副本实际启动，2629项选定稳定摘要与131项程序匹配，原盘换回正常运行；临时副本已清理，旧20点保留，共21点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/semgrep-parser-check-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
+当前运行133项插件程序，恢复点`ready-scanner-admission-20261101`。独立磁盘副本实际启动，2632项选定稳定摘要与133项程序匹配，原盘换回正常运行；临时副本已清理，旧21点保留，共22点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/scanner-admission-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
 
 ## 专业环境安装
 
