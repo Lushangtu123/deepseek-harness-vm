@@ -1,3 +1,5 @@
+> 2026-11-01 新增容量网页和现有入口内每60秒共享采样，无新启动项/系统通知/自动清理。见[本轮验收](storage-dashboard-verification.json)与[当前状态](current-status.md)。下文保留历史结论。
+
 > 2026-11-01 新增按需只读存储监测与清理预览，不删除、不自动启动VM或设置后台任务。见[本轮验收](storage-preview-verification.json)及[当前状态](current-status.md)。下文保留历史结论。
 
 > 2026-11-01 新增候选准入与扫描输出限额；未更换扫描器镜像，解析缺口保留。见[本轮验收](scanner-admission-verification.json)与[当前状态](current-status.md)。下文保留历史结论。

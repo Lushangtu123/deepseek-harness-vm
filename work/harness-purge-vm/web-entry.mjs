@@ -4,9 +4,52 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { Transform } from 'node:stream'
 import { createHash, randomUUID } from 'node:crypto'
-import { createDiagnostics, HEALTH_HTML, ENVIRONMENT_BANNER, RECOVERY_HTML } from './web-health.mjs'
+import { createDiagnostics, HEALTH_HTML, ENVIRONMENT_BANNER, RECOVERY_HTML, STORAGE_HTML, STORAGE_SCRIPT } from './web-health.mjs'
 
 const executeFile = promisify(execFile)
+export function createStorageMonitor({run=signal=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'storage-capacity'],{timeout:10000,maxBuffer:8192,signal}),schedule=callback=>setInterval(callback,60000),unschedule=clearInterval,now=()=>performance.now(),wallNow=Date.now}={}){
+ const policy={warningFreeBytes:10*1024**3,criticalFreeBytes:5*1024**3,warningFreePercent:15,criticalFreePercent:5,warningFreeInodePercent:15,criticalFreeInodePercent:5};
+ let pending,latest,checked,attempted,timer,controller,failed=false,stopped=false;
+ const stamp=()=>({mono:now(),wall:wallNow()});
+ const age=at=>{if(!at)return Infinity;const mono=now()-at.mono,wall=wallNow()-at.wall;return mono<0||wall<0?Infinity:Math.max(mono,wall)};
+ function filesystem(value,inodes=false){
+  if(value==null)return null;
+  const keys=['totalBytes','availableBytes',...(inodes?['inodeTotal','inodeAvailable']:[])];
+  if(keys.some(key=>!Number.isSafeInteger(value[key])||value[key]<0)||!value.totalBytes||value.availableBytes>value.totalBytes||inodes&&value.inodeAvailable>value.inodeTotal)throw Error('Invalid capacity');
+  const ratio=value.availableBytes/value.totalBytes;
+  let state=value.availableBytes<policy.criticalFreeBytes||ratio<.05?'critical':value.availableBytes<policy.warningFreeBytes||ratio<.15?'warning':'healthy';
+  if(inodes&&value.inodeTotal){const free=value.inodeAvailable/value.inodeTotal;if(free<.05)state='critical';else if(free<.15&&state==='healthy')state='warning'}
+  return{state,...Object.fromEntries(keys.map(key=>[key,value[key]])),availablePercent:Math.round(ratio*10000)/100};
+ }
+ function snapshot(){
+  const elapsed=age(checked),current=latest&&elapsed<90000&&!failed;
+  return{version:1,readOnly:true,automaticChanges:false,deletionAvailable:false,monitoring:timer!==undefined&&!stopped,intervalSeconds:60,staleAfterSeconds:90,policy,
+   state:stopped?'stopped':failed?'unavailable':!latest?'not-observed':!current?'stale':!latest.hostFilesystem||latest.guest.state==='unavailable'?'partial':'current',sampling:!!pending,checkedAt:checked?new Date(checked.wall).toISOString():null,ageMs:Number.isFinite(elapsed)?Math.round(elapsed):null,
+   hostFilesystem:latest?.hostFilesystem??null,guest:latest?.guest??{state:'unavailable'}};
+ }
+ function refresh(){
+  if(stopped)return Promise.resolve(snapshot());
+  if(pending)return pending;
+  if(age(attempted)<5000)return Promise.resolve(snapshot());
+  attempted=stamp();controller=new AbortController();
+  const task=(async()=>{
+   try{
+    const result=await run(controller.signal);
+    if(age(attempted)>15000)throw Error('Capacity observation crossed a timer gap');
+    if(typeof result.stdout!=='string'||Buffer.byteLength(result.stdout)>8192)throw Error('Capacity response limit');
+    const value=JSON.parse(result.stdout);
+    if(value?.version!==1||value.readOnly!==true||value.automaticChanges!==false||value.deletionAvailable!==false||!['observed','not-running','unavailable'].includes(value.guest?.state))throw Error('Invalid capacity report');
+    const guest=value.guest.state==='observed'?{state:'observed',filesystem:filesystem(value.guest.filesystem,true)}:{state:value.guest.state};
+    if(guest.state==='observed'&&!guest.filesystem)throw Error('Missing VM counters');
+    const host=filesystem(value.hostFilesystem);
+    if(!stopped){latest={hostFilesystem:host,guest};checked=attempted;failed=false}
+   }catch{if(!stopped)failed=true}
+  })();
+  pending=task.finally(()=>{pending=undefined;controller=undefined}).then(snapshot);
+  return pending;
+ }
+ return{snapshot,refresh,start(){if(stopped||timer!==undefined)return;timer=schedule(()=>pending?undefined:refresh());timer?.unref?.();void refresh()},stop(){stopped=true;if(timer!==undefined)unschedule(timer);timer=undefined;controller?.abort()}};
+}
 export function createClockMonitor({run=()=>executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'clock-maintain'],{timeout:20000,maxBuffer:8192}),schedule=callback=>setInterval(callback,60000),unschedule=clearInterval,observe=()=>{}}={}) {
   let stopped=false,pending=false
   const tick=async()=>{
@@ -116,7 +159,7 @@ export function createEnvironmentReader({ run = () => executeFile('/opt/homebrew
 
 function bannerTransform() {
   let buffered = Buffer.alloc(0), done = false
-  const tag = Buffer.from('<script defer src="/__harness/banner.js"></script>')
+  const tag = Buffer.from('<script defer src="/__harness/banner.js"></script><script defer src="/__harness/storage.js"></script>')
   return new Transform({ transform(chunk, _encoding, next) {
     if (done) { this.push(chunk); next(); return }
     buffered = Buffer.concat([buffered, chunk])
@@ -130,7 +173,7 @@ function bannerTransform() {
 // Private loopback entry for the existing VM service. One reusable HTTP socket
 // serializes initial connections through SLiRP. Upgraded sockets leave the
 // agent's pool, so long-lived Harness WebSockets do not block ordinary requests.
-export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000, bodyIdleTimeoutMs = 15000, environmentReader = createEnvironmentReader(), recoveryReader = createRecoveryReader(), capabilityRun = action => executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'capabilities','--capability-mode',action],{timeout:150000,maxBuffer:32768}) } = {}) {
+export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000, bodyIdleTimeoutMs = 15000, environmentReader = createEnvironmentReader(), recoveryReader = createRecoveryReader(), storageMonitor = createStorageMonitor(), capabilityRun = action => executeFile('/opt/homebrew/bin/python3',[fileURLToPath(new URL('./manage.py',import.meta.url)),'capabilities','--capability-mode',action],{timeout:150000,maxBuffer:32768}) } = {}) {
   const agent = new http.Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1 })
   const sockets = new Set()
   const diagnostics = createDiagnostics()
@@ -299,6 +342,22 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
   const server = http.createServer(async (req, res) => {
     if (!allowed(req, res)) return
     const recoveryPath=req.url.split('?',1)[0]
+    if(['/__harness/storage','/__harness/storage/status','/__harness/storage.js'].includes(recoveryPath)){
+      if(req.method!=='GET'){res.writeHead(405);res.end();return}
+      const json=recoveryPath.endsWith('/status'),script=recoveryPath.endsWith('.js');
+      if(req.headers['sec-fetch-site']==='cross-site'||json&&req.headers['x-harness-local']!=='1'){res.writeHead(403);res.end();return}
+      const query=new URL(req.url,entryOrigin()).searchParams;
+      if(query.size&&(!json||query.size!==1||query.get('refresh')!=='1')){res.writeHead(400);res.end();return}
+      const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':json?'application/json; charset=utf-8':script?'application/javascript; charset=utf-8':'text/html; charset=utf-8'};
+      if(!json){res.writeHead(200,headers);res.end(script?STORAGE_SCRIPT:STORAGE_HTML);return}
+      let timer;
+      try{
+        const value=query.size?await Promise.race([storageMonitor.refresh(),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('Capacity deadline')),11000)})]):storageMonitor.snapshot();
+        if(!res.destroyed){res.writeHead(200,headers);res.end(JSON.stringify(value))}
+      }catch{if(!res.destroyed){res.writeHead(503,headers);res.end('{"error":"Capacity unavailable"}')}}
+      finally{clearTimeout(timer)}
+      return
+    }
     if(recoveryPath==='/__harness/capabilities'){await capabilities(req,res);return}
     if(recoveryPath==='/__harness/recoveries'||recoveryPath==='/__harness/recovery'){
       if(req.method!=='GET'){res.writeHead(405);res.end();return}
@@ -379,7 +438,7 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
   })
   server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)) })
   server.shutdown = () => {
-    agent.destroy()
+    storageMonitor.stop();agent.destroy()
     for (const socket of sockets) socket.destroy()
     server.close()
   }
@@ -387,7 +446,8 @@ export function createWebEntry({ upstreamPort = 49224, responseTimeoutMs = 30000
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = createWebEntry()
+  const storageMonitor=createStorageMonitor();const server = createWebEntry({storageMonitor})
+  server.once('listening',()=>storageMonitor.start());server.once('close',()=>storageMonitor.stop())
   const stopClock=createClockMonitor({observe:value=>{if(value.state==='adjusted'||value.state==='unavailable')console.log('VM clock maintenance:',JSON.stringify(value))}})
   server.on('error', error => { console.error('Local web entry stopped:', error.code || 'unknown'); process.exitCode = 1 })
   server.listen({ host: '127.0.0.1', port: 49226, backlog: 128 })

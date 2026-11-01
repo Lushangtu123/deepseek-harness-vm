@@ -8,9 +8,13 @@
 
 新增专用VM内的离线自检命令，用5个合成正反例核对固定镜像或明确指定的已加载候选。当前原复现仍PartialParsing，工具如实返回exit2；未替换扫描器或改写项目。[使用方法](docs/semgrep-parser-check.md) · [验收记录](docs/semgrep-parser-check-verification.json)。
 
+## 容量面板与持续预警
+
+[本机容量面板](http://127.0.0.1:49226/__harness/storage)展示Mac/VM空间和VM inode，聊天VM状态栏同步显示预警。现有入口运行且Mac醒着时每60秒共享轻量采样，不扫描目录、不自动清理；停止或过期明确标注。[使用方法](docs/storage-dashboard.md) · [验收记录](docs/storage-dashboard-verification.json)。
+
 ## 存储监测与清理预览
 
-Mac启动器选项12可只读查看宿主/VM容量、目录、Docker及恢复对象，显示预警和保留/待核对依据。没有删除、自动清理或后台定时入口，不自动启动VM。[使用方法](docs/storage-preview.md) · [验收记录](docs/storage-preview-verification.json)。
+Mac启动器选项12可只读查看宿主/VM容量、目录、Docker及恢复对象，显示预警和保留/待核对依据。预览本身不设置定时任务、不删除或自动清理，也不自动启动VM；持续容量采样见上文。[使用方法](docs/storage-preview.md) · [验收记录](docs/storage-preview-verification.json)。
 
 ## 扫描器候选准入与输出限制
 
@@ -74,7 +78,7 @@ Mac统一启动器选项11可检查并显式切换已加载Semgrep候选，保�
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前运行134项插件程序，恢复点`ready-storage-preview-20261101`。独立磁盘副本实际启动，2634项选定稳定摘要与134项程序匹配，原盘换回正常运行；临时副本已清理，旧22点保留，共23点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/storage-preview-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
+当前运行134项插件程序，恢复点`ready-storage-dashboard-20261101`。独立磁盘副本实际启动，2635项选定稳定摘要与134项程序匹配，原盘换回正常运行；临时副本已清理，旧23点保留，共24点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/storage-dashboard-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
 
 ## 专业环境安装
 

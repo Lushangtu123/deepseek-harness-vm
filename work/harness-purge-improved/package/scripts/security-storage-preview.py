@@ -109,7 +109,7 @@ def docker_summary():
   return {'state':'observed','rows':rows,'action':'retain','reason':'Docker估算可回收量不代表获准删除；固定镜像、容器和卷仍保留'}
  except (OSError,ValueError,subprocess.SubprocessError):return {'state':'unavailable','rows':[],'action':'retain','reason':'Docker用量未确认，不能推断为零或据此清理'}
 
-def preview(home=HOME,*,docker=True):
+def preview(home=HOME,*,docker=True,capacity_only=False):
  home=Path(home)
  if home.resolve()!=home or not home.is_dir():raise ValueError('Ordinary home required')
  try:
@@ -120,15 +120,16 @@ def preview(home=HOME,*,docker=True):
    filesystem=capacity(space.f_blocks*space.f_frsize,space.f_bavail*space.f_frsize,inode_total=space.f_files,inode_available=space.f_favail)
   finally:os.close(fd)
  except (OSError,ValueError):filesystem={'state':'unknown','totalBytes':None,'availableBytes':None}
+ if capacity_only:return {'version':1,'readOnly':True,'automaticChanges':False,'deletionAvailable':False,'checkedAt':datetime.now(timezone.utc).isoformat(),'filesystem':filesystem}
  objects=[]
  for relative,title,reason in GROUPS:
   objects.append({'id':relative,'title':title,'path':str(home/relative),'action':'retain','reason':reason,'usage':measure(home/relative)})
  return {'version':1,'readOnly':True,'automaticChanges':False,'checkedAt':datetime.now(timezone.utc).isoformat(),'filesystem':filesystem,'objects':objects,'reviewDirectories':children(home/'downloads'),'docker':docker_summary() if docker else {'state':'not-requested'},'notice':'按需只读预览；不读取文件内容，不自动清理。目录可能重叠，不相加；allocatedBytes不等于实际可释放空间。','deletionAvailable':False}
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--without-docker',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--without-docker',action='store_true');parser.add_argument('--capacity-only',action='store_true');args=parser.parse_args()
  try:
   if sys.platform!='linux' or Path.home()!=HOME or os.getuid()!=1000:raise ValueError('Dedicated VM required')
-  print(json.dumps(preview(docker=not args.without_docker),ensure_ascii=False,indent=2));return 0
+  print(json.dumps(preview(docker=not args.without_docker,capacity_only=args.capacity_only),ensure_ascii=False,indent=2));return 0
  except Exception:print(json.dumps({'version':1,'readOnly':True,'automaticChanges':False,'error':'存储状态未确认；不会清理或启动其他操作。'},ensure_ascii=False));return 1
 if __name__=='__main__':raise SystemExit(main())

@@ -1,7 +1,15 @@
 from pathlib import Path
 import importlib.util,os,tempfile,unittest
+from unittest.mock import patch
 SCRIPT=Path(__file__).resolve().parent.parent/'package/scripts/security-storage-preview.py'
 class StorageTests(unittest.TestCase):
+ def test_capacity_only_probe_never_walks_directories_or_invokes_docker(self):
+  m=self.module()
+  with tempfile.TemporaryDirectory() as folder,patch.object(m,'measure',side_effect=AssertionError('No directory scan')),patch.object(m,'children',side_effect=AssertionError('No candidates')),patch.object(m,'docker_summary',side_effect=AssertionError('No Docker')):
+   result=m.preview(Path(folder).resolve(),capacity_only=True)
+  self.assertEqual(result['version'],1);self.assertTrue(result['readOnly']);self.assertFalse(result['deletionAvailable']);self.assertFalse(result['automaticChanges'])
+  self.assertGreater(result['filesystem']['totalBytes'],0)
+  self.assertNotIn('objects',result);self.assertNotIn('reviewDirectories',result);self.assertNotIn('docker',result)
  def module(self):
   self.assertTrue(SCRIPT.is_file(),'VM storage monitor missing');s=importlib.util.spec_from_file_location('storage_monitor',SCRIPT);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
  def test_capacity_thresholds_report_critical_warning_and_healthy_with_units(self):

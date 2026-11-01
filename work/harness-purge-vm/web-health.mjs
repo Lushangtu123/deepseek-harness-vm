@@ -400,10 +400,11 @@ export const ENVIRONMENT_BANNER = `(() => {
  let latest,checkedClock,attemptClock,expiry,detail='',busy=false,failed=false;
  function render(){
   const age=elapsed(checkedClock),seconds=Math.floor(age/1000),label=!Number.isFinite(age)?'核对时间已变化':seconds<10?'刚刚核对':seconds<60?seconds+' 秒前核对':Math.floor(seconds/60)+' 分钟前核对';
-  if(!latest){title.textContent=failed?'VM · 版本状态暂时不可用':'VM · 正在核对运行版本';return}
+  const storageLabel=box.getAttribute?.('data-storage-label'),storageSuffix=storageLabel?' · 存储：'+storageLabel:'';
+  if(!latest){title.textContent=(failed?'VM · 版本状态暂时不可用':'VM · 正在核对运行版本')+storageSuffix;return}
   const mode=({original:'完整原版',improved:'改进版',unknown:'版本未验证'}[latest.mode]||'版本未验证')+(latest.originalCapabilities?' · 原版能力已启用':'');
   const coverage={matches:'已覆盖程序、工具和配置',older:'存在未覆盖或已变更项',missing:'未建立',invalid:'校验失败'}[latest.recovery?.state]||'未验证';
-  title.textContent=busy?'VM · 正在重新核对 · '+label:failed?'VM · 状态核对失败 · '+label:age>=60000?'VM · '+mode+' · 状态待重新核对 · '+label:'VM · '+mode+' · 恢复点：'+coverage+' · '+label;
+  title.textContent=(busy?'VM · 正在重新核对 · '+label:failed?'VM · 状态核对失败 · '+label:age>=60000?'VM · '+mode+' · 状态待重新核对 · '+label:'VM · '+mode+' · 恢复点：'+coverage+' · '+label)+storageSuffix;
   info.textContent=detail+'\\n核对有效期：60 秒；过期后需重新核对。'+(failed?'\\n本次核对失败，上次结果仅供参考；请确认 VM 已启动后刷新。':'');
  }
  async function update(){
@@ -424,6 +425,70 @@ export const ENVIRONMENT_BANNER = `(() => {
  refresh.addEventListener('click',update);window.addEventListener('focus',returned);document.addEventListener?.('visibilitychange',returned);
  const aging=setInterval(render,10000);aging?.unref?.();update();
 })();`
+
+function installStorageView(){
+ const byId=id=>document.getElementById('storage-'+id),panel=byId('app'),identity=document.getElementById('harness-vm-identity');
+ if(!panel&&!identity)return;
+ if(identity){const link=document.createElement('a');link.href='/__harness/storage';link.textContent='存储容量';link.style.cssText='display:inline-block;margin:0 16px 14px';identity.appendChild(link)}
+ let latest,received,attempted,busy=false,failed=false;
+ const clock=()=>({wall:Date.now(),mono:performance.now()}),elapsed=at=>{if(!at)return Infinity;const wall=Date.now()-at.wall,mono=performance.now()-at.mono;return wall<0||mono<0?Infinity:Math.max(wall,mono)};
+ const size=value=>Number.isSafeInteger(value)&&value>=0?(value/1024**3).toFixed(2)+' GiB':'未确认';
+ const put=(id,text)=>{const node=byId(id);if(node&&node.textContent!==text)node.textContent=text};
+ const stateLabel={healthy:'正常',warning:'预警',critical:'紧急'};
+ function render(){
+  const age=latest&&Number.isFinite(latest.ageMs)?latest.ageMs+elapsed(received):Infinity;
+  const stale=!latest||age>=90000||!['current','partial'].includes(latest.state),historical=failed||stale;
+  const host=latest?.hostFilesystem,guest=latest?.guest,space=guest?.filesystem;
+  const states=[host?.state,space?.state],level=states.includes('critical')?'critical':states.includes('warning')?'warning':'healthy';
+  let label=failed?'容量读取失败':!latest?'正在读取容量':stale?'容量已过期，待重新核对':level==='critical'?'容量紧急 · 已低于紧急预留线':level==='warning'?'容量预警 · 已低于预留线':latest.state==='partial'?'部分容量未确认':guest?.state==='not-running'?'VM 未启动 · 仅核对 Mac 容量':'容量正常';
+  if(panel){
+   put('summary',label);byId('summary')?.setAttribute('data-state',historical?'unknown':latest?.state==='partial'?'unknown':level);byId('summary-box')?.setAttribute('data-state',historical?'unknown':latest?.state==='partial'?'unknown':level);
+   put('error',failed?'本次读取未完成，上次数值仅供参考；稍后可重试。':'');
+   const observed=Date.parse(latest?.checkedAt);put('checked','最近采样：'+(Number.isFinite(observed)?new Date(observed).toLocaleString('zh-CN'):'尚无记录')+(Number.isFinite(age)?' · '+Math.floor(age/1000)+' 秒前':''));
+   put('monitor',latest?.monitoring?'本机入口运行期间每 60 秒采样；此页每 15 秒读取共享结果。':'持续采样尚未运行或未确认；此页不能保证持续监测。');
+   for(const [key,fs]of [['host',host],['guest',space]]){
+    const status=fs?(historical?'上次：':'')+(stateLabel[fs.state]||'未确认'):key==='guest'&&guest?.state==='not-running'?'VM 未启动':'未确认';
+    put(key+'-status',status);byId(key+'-status')?.setAttribute('data-state',historical?'unknown':fs?.state||'unknown');
+    put(key+'-free',size(fs?.availableBytes));put(key+'-total','总容量 '+size(fs?.totalBytes));
+    const percent=Number.isFinite(fs?.availablePercent)?Math.max(0,Math.min(100,fs.availablePercent)):null;
+    put(key+'-percent',percent===null?'可用比例未确认':'可用 '+percent.toFixed(1)+'%'+(historical?' · 历史数值':''));
+    const bar=byId(key+'-bar');if(bar){bar.style.width=(percent??0)+'%';bar.setAttribute('aria-valuenow',percent===null?'0':String(percent));bar.setAttribute('aria-valuetext',percent===null?'未确认':(historical?'历史：':'')+'可用 '+percent.toFixed(1)+'%');bar.setAttribute('data-state',historical?'unknown':fs?.state||'unknown')}
+   }
+   put('inodes',space?.inodeTotal?'VM 可用 inode：'+(space.inodeAvailable/space.inodeTotal*100).toFixed(1)+'% · '+space.inodeAvailable.toLocaleString()+' / '+space.inodeTotal.toLocaleString()+(historical?'（上次观测）':''):'VM inode：未确认');
+  }
+  if(identity){
+   const brief=failed?'读取失败':!latest?'正在核对':stale?'待重新核对':level==='critical'?'容量紧急':level==='warning'?'容量预警':latest.state==='partial'?'部分未确认':guest?.state==='not-running'?'VM 未启动':'正常';
+   identity.setAttribute('data-storage-label',brief);
+   const title=identity.children[0];if(title)title.textContent=title.textContent.replace(/ · 存储：.*$/,'')+' · 存储：'+brief;
+  }
+ }
+ async function read(force=false){
+  if(busy||!force&&elapsed(attempted)<5000)return;
+  busy=true;attempted=clock();const button=byId('refresh');if(button)button.disabled=true;
+  const controller=new AbortController();let rejectAbort;
+  const abort=()=>rejectAbort?.(Error('Capacity read cancelled'));
+  controller.signal.addEventListener('abort',abort,{once:true});const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+   const cancelled=new Promise((_,reject)=>rejectAbort=reject);
+   const value=await Promise.race([cancelled,(async()=>{const response=await fetch('/__harness/storage/status'+(force?'?refresh=1':''),{headers:{'x-harness-local':'1'},cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('Capacity unavailable');return response.json()})()]);
+   if(elapsed(attempted)>15000)throw Error('Capacity response crossed a timer gap');
+   if(value?.version!==1||value.readOnly!==true||value.deletionAvailable!==false||!['current','partial','stale','unavailable','stopped','not-observed'].includes(value.state))throw Error('Invalid capacity state');
+   latest=value;received=attempted;failed=false;
+  }catch{failed=true}
+  finally{clearTimeout(timer);controller.signal.removeEventListener('abort',abort);busy=false;if(button)button.disabled=false;render()}
+ }
+ byId('refresh')?.addEventListener('click',()=>read(true));
+ const returned=()=>{render();if(document.visibilityState!=='hidden')void read()};
+ window.addEventListener('focus',returned);document.addEventListener('visibilitychange',returned);
+ setInterval(()=>{render();if(document.visibilityState!=='hidden')void read()},15000);
+ render();void read();
+}
+export const STORAGE_SCRIPT=`(${installStorageView.toString()})();`;
+const storageCard=(key,title,kicker)=>`<section class="capacity-card" aria-labelledby="storage-${key}-title"><div class="card-top"><span class="eyebrow">${kicker}</span><span class="status" id="storage-${key}-status" data-state="unknown">未确认</span></div><h2 id="storage-${key}-title">${title}</h2><div class="available" id="storage-${key}-free">未确认</div><p class="caption">可用空间</p><div class="track"><div id="storage-${key}-bar" role="progressbar" aria-label="${title}可用比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="未确认"></div></div><div class="capacity-meta"><span id="storage-${key}-percent">可用比例未确认</span><span id="storage-${key}-total">总容量未确认</span></div></section>`;
+export const STORAGE_HTML=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>存储容量 · Harness</title>
+<style>
+:root{color-scheme:light;font-family:"Avenir Next","PingFang SC",sans-serif;color:#17352f;background:#f4f6f3}*{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:64px auto;padding:0 30px 50px}nav{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:48px}a{color:#286858;text-underline-offset:4px;font-size:13px}a:focus-visible,button:focus-visible{outline:3px solid #217c68;outline-offset:4px}.eyebrow{font:11px/1.5 Menlo,monospace;letter-spacing:.13em;color:#627b70}h1{font-size:38px;letter-spacing:-.045em;margin:12px 0}header p{color:#60756b;font-size:14px;line-height:1.8;max-width:650px}.notice{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:30px 0 24px;padding:18px 20px;background:#fff;border:1px solid #d8e3da;border-radius:14px}.notice>div{min-width:0}.notice strong{display:block;font-size:16px}.notice p{font-size:12px;color:#64756b;margin:7px 0 0}.notice[data-state="warning"]{border-color:#dcae5a;background:#fff8e9}.notice[data-state="critical"]{border-color:#db8c85;background:#fff0ec}.notice[data-state="unknown"]{background:#edf1ed}button{flex-shrink:0;border:1px solid #215b4e;background:#215b4e;color:#fff;border-radius:9px;padding:10px 15px;cursor:pointer;font:600 12px/1.5 inherit}button:disabled{opacity:.6;cursor:wait}.cards{display:grid;grid-template-columns:1fr 1fr;gap:22px}.capacity-card{background:#fff;border:1px solid #dce5dd;border-radius:18px;padding:26px;box-shadow:0 6px 22px #1e443506}.card-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.status{border-radius:6px;padding:4px 9px;background:#e8f2ed;color:#215c47;font-size:12px;font-weight:600}.status[data-state="warning"]{background:#fff0ce;color:#805400}.status[data-state="critical"]{background:#ffe4df;color:#a42d22}.status[data-state="unknown"]{background:#edf0ee;color:#61736b}h2{font-size:18px;margin:22px 0}.available{font:500 clamp(28px,3.5vw,40px)/1.3 Menlo,monospace;letter-spacing:-.05em;overflow-wrap:anywhere}.caption{font-size:12px;color:#738278;margin:8px 0 26px}.track{height:9px;background:#edf1ec;overflow:hidden;border-radius:7px}.track>div{height:100%;background:#37896e;border-radius:7px;transition:width .3s}.track>div[data-state="warning"]{background:#b98228}.track>div[data-state="critical"]{background:#c75c4d}.track>div[data-state="unknown"]{background:#98a89f}.capacity-meta{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;color:#607368;font-size:11px;line-height:1.8;margin-top:12px}.details{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:26px;border-top:1px solid #d9e1d9;padding-top:24px}.details h2{font-size:14px;margin:0 0 10px}.details p{font-size:12px;line-height:1.9;color:#62776b;margin:0 0 8px}#storage-error{color:#9a3229;font-size:13px}footer{font-size:11px;color:#718175;line-height:1.9;margin-top:26px}@media(max-width:650px){main{margin:28px auto;padding:0 18px 30px}nav{margin-bottom:32px;gap:16px}h1{font-size:30px}.cards,.details{grid-template-columns:1fr}.capacity-card{padding:22px}.notice{align-items:flex-start;flex-direction:column;gap:14px}.available{font-size:34px}.details{gap:22px}}@media(prefers-reduced-motion:reduce){.track>div{transition:none}}
+</style><main id="storage-app"><nav aria-label="本机工具"><a href="/#redteam-full">返回 Harness</a><a href="/__harness/recovery">恢复点管理</a><a href="/__harness/health">连接诊断</a></nav><header><span class="eyebrow">HARNESS / CAPACITY</span><h1>存储容量</h1><p>留意可用空间，给下一次任务留出余量。这里只展示容量与预留线，清理需要另行核对具体对象。</p></header><div class="notice" id="storage-summary-box"><div><strong id="storage-summary" role="status" aria-live="polite">正在读取容量</strong><p id="storage-checked">最近采样：尚无记录</p></div><button id="storage-refresh" type="button">立即核对</button></div><p id="storage-error" role="alert"></p><div class="cards">${storageCard('host','承载 VM 的 Mac 卷','HOST VOLUME')}${storageCard('guest','VM 文件系统','GUEST FILESYSTEM')}</div><div class="details"><section><h2>检查与提醒</h2><p id="storage-monitor">持续采样状态待核对。</p><p id="storage-inodes">VM inode：未确认</p><p>采样超过 90 秒、读取失败或时钟变化时，旧数值仅供参考。</p></section><section><h2>容量预留线</h2><p>预警：可用少于 10 GiB 或 15%。<br>紧急：可用少于 5 GiB 或 5%。<br>VM 可用 inode：少于 15% 预警，少于 5% 紧急。</p><p>需要查看目录、Docker 和恢复对象时，使用 Mac 启动器选项 12 的只读预览。</p></section></div><footer>只在本机入口运行且 Mac 醒着时采样。不会唤醒或启动 VM，不发送系统通知，不自动清理或限制任务。结果仅保存在入口进程内存中；退出后清空。</footer></main><script defer src="/__harness/storage.js"></script></html>`;
 
 export function createDiagnostics() {
   const recent = [], layers = {}, stamps = {}, active = { websocket: 0, sse: 0 }; let eventId = 0
