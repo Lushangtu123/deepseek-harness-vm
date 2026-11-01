@@ -5,7 +5,7 @@
   "LICENSE": "b45f2c5ef6ed471d1dcdf63c10e432d856c8867be2828aece1b383bbece7662a",
   "LICENSE-COMMERCIAL.md": "a0d104262cb7db3c99a3f82a7089a5538237b364a6ece72af34ffc04e7ac522f",
   "NOTICE": "ad63c4be7b12bdc1a43b05d49a831933671be7f2a6f723a6c079e8653a8ac54f",
-  "PERSONAL-CHANGES.md": "e1a0144e74e0b1112383c44ec33ee7c1b38192f3780234829f0c212d3f899869",
+  "PERSONAL-CHANGES.md": "d424e31e66d792e5820fc3595ae11e3087854a83a03ac0fdb9ddde7441cab30d",
   "README.md": "f932bb24fdcdf0b05196b7fec67bbb884f5ebbb0df04fadcc4890f87a28d6a0d",
   "README.zh-CN.md": "d4df0d6e57d9da7c0e147cf7bd5929b8f2aa6b4a761f0e97096fd989725d983d",
   "bin/dsh-purge.js": "759081efd77e2ac757d759eeb2d14552bfbf925944ee3a53247e36064196e1eb",
@@ -127,6 +127,7 @@
   "scripts/patch-client-dock.mjs": "31da200312b7f715f5ea98da8885b2db94193b8ebb9fb582d9f0ca076458ae3c",
   "scripts/redteam-setup.sh": "a35da25c76aadd9954615123bf8318e3624ad02d6d434ad0fc7ac6fb3beb4855",
   "scripts/security-local-lab.py": "ccf41c979001ebb35f9e6e4e267c7db291869dc0ef5a68a8fb03850a5b011baa",
+  "scripts/security-parser-check.py": "b78b7c3a4118bea3a182bd58800bee1d2a8cde5828d2005a9af41f24a0e80c33",
   "scripts/security-runtime-preflight.mjs": "192ea7181fb7b0d831ff5bfc807b2989ed85682dd889cd8a650197b035fb0eff",
   "scripts/security-service.mjs": "cce18dc2804ccc574f689e8be2b084a9a823a1cc7f25ab87c82ad98dff7c5d43"
 }
