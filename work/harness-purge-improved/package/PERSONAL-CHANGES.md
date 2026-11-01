@@ -171,3 +171,12 @@ New complete scans store bounded normalized observations in a separate per-run S
 Native real-project acceptance exposed a service-order race: tools captured an empty fallback if the asset store had not yet published. Both the tools export and bundle now require tools plus redteam, so Cordis waits for the store; no fixed sleep or retry is used. The installed Cordis integration control activates the tools before publishing the store, then checks a real session binding after publication.
 
 2026-10-29 Harness follow-ups: model-only status is a compact summary; report uses version-checked finding/run pages and a6000UTF8-byte budget instead of returning a full Markdown blob. Native tool serialization preserves compactJSON; full UI/export unchanged. New wait action observes one exact task for0–30seconds without launch/retry and documents one-shot headless lifetime. Source-free scanner diagnostics (type/path/line,20items with total/truncation) persist with results and display in audit/report. Old partial runs have unknown reasons unless originally recorded; no silent backfill or weakened coverage rules.
+
+
+## 2026-11-01：本地会话扫描与解析缺口补查
+
+安全审计范围可保存可选的 ZAP 私有会话配置名。Cookie 或 Bearer 值仅存在 VM 用户私有配置及临时扫描副本，不存入网页范围、模型结果或公开导出。配置绑定明确的本地 origin、期限和校验页面，控制器与 ZAP 在扫描前后各自核对；核对失败不计完整认证扫描，不保证全程持续登录。退出路径排除、跨 origin 头隔离、临时副本清理与固定镜像禁止动态插件下载一并启用。
+
+VM 脚本 `scripts/security-local-lab.py serve` 提供临时合成表单登录靶场；`import-session NAME` 从标准输入导入私有 JSON，不通过命令行参数接收凭据，不覆盖已有名称，不自动处理真实登录、MFA 或续期。
+
+Semgrep 解析失败文件可获得有限文本补查：最多尝试20个候选文件，每个1MB、总读取8MiB，跳过链接及越界/二进制/超大文件。只匹配 eval、innerHTML 赋值、Function 构造字样；注释及字符串也可能命中。提示为 info/待验证，原 PartialParsing 和不完整覆盖保留，不能据此自动关闭发现。

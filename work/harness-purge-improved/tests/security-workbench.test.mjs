@@ -137,3 +137,57 @@ test('A missing historical URL stays unknown while an explicit null URL is uncon
   assert.match(section('missing-url'),/本地网址：未记录/);assert.match(section('null-url'),/本地网址：未配置/)
  }finally{await f.close()}
 });
+
+test('ZAP scope stores only a named private authentication profile and rejects credential fields',async()=>{
+ const f=await fixture();try{
+  let saved;assert.doesNotThrow(()=>{saved=f.bench.saveScope('a',f.scope({authProfile:'local-login-lab'}))});
+  assert.equal(saved.authProfile,'local-login-lab');assert.equal(f.bench.read('a').profile.authProfile,'local-login-lab');
+  for(const extra of [{authProfile:'../escape'},{authProfile:'local-login-lab',url:null},{authProfile:'local-login-lab',tools:['semgrep']},{cookie:'PRIVATE_SESSION_VALUE'}])assert.throws(()=>f.bench.saveScope('b',f.scope(extra)));
+ }finally{await f.close()}
+});
+
+test('Authenticated ZAP hook scopes the private header and verifies real sender responses without persisting it',async()=>{
+ const {buildZapHook}=await api(),root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'zap-auth-hook-')));
+ try{
+  const config={version:1,revision:'879b1b08-0a7d-4f84-9f1d-d50cb7f94072',origin:'http://127.0.0.1:15000',header:'Cookie',value:'sid=HOOK_CANARY_'+ 'X'.repeat(32),verifyPath:'/account',loggedInMarker:'HARNESS_AUTHENTICATED',excludePaths:['/logout'],expiresAt:new Date(Date.now()+600000).toISOString()};fs.writeFileSync(path.join(root,'.session.json'),JSON.stringify(config),{mode:0o600});
+  const code=`import types,sys,json,re\nfrom pathlib import Path\nm=types.ModuleType('zap_common');sys.modules['zap_common']=m\nfrom importlib.machinery import SourceFileLoader\nloader=SourceFileLoader('zap_hooks',${JSON.stringify(path.join(root,'loopback-hook.py'))})\nmodule=types.ModuleType(loader.name);loader.exec_module(module);namespace=module.__dict__\nassert '__file__' not in namespace, 'fixed upstream loader contract changed'\nassert callable(namespace.get('zap_tuned')), 'authenticated setup hook missing'\nrules=[];forms=[];sent=[]\ndef add_rule(*args,**kwargs):\n rules.append((args,kwargs));return 'OK'\ndef send(request,followredirects=None):\n assert followredirects=='false';assert 'Cookie' not in request;sent.append(request);return [{'responseHeader':'HTTP/1.1 200 OK\\r\\n','responseBody':'HARNESS_AUTHENTICATED'}]\nzap=types.SimpleNamespace(replacer=types.SimpleNamespace(add_rule=add_rule),spider=types.SimpleNamespace(set_option_process_form=lambda value:forms.append(value),set_option_post_form=lambda value:forms.append(value)),core=types.SimpleNamespace(send_request=send))\nnamespace['zap_tuned'](zap);namespace['zap_pre_shutdown'](zap)\nassert len(rules)==1 and len(sent)==2 and forms==['false','false']\nargs,kwargs=rules[0];assert args[2]=='REQ_HEADER' and args[4]=='Cookie' and args[5]==${JSON.stringify(config.value)}\nassert re.match(kwargs['url'],'http://127.0.0.1:15000/account')\nassert not re.match(kwargs['url'],'http://127.0.0.1:15001/account')\nassert not re.match(kwargs['url'],'http://127.0.0.1:150000/account')\nvalue=json.loads(Path(${JSON.stringify(path.join(root,'auth-check.json'))}).read_text());assert value['before'] is True and value['after'] is True and value['checkedRequests']==2\nassert 'HOOK_CANARY' not in json.dumps(value)\n`;
+  fs.writeFileSync(path.join(root,'loopback-hook.py'),buildZapHook(true));const result=spawnSync('python3',['-c',code],{cwd:root,encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);
+ }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('Authenticated runs cannot be completed without both controller and ZAP sender verification',async()=>{
+ const f=await fixture(async()=>({complete:true,findings:[],coverageKey:'auth-fixture'}));try{
+  f.bench.saveScope('a',f.scope({authProfile:'local-login-lab'}));f.bench.start('a',{requestId:'missing-auth-proof',profileRevision:1,tool:'zap'});await f.bench.active.promise;
+  const run=f.bench.read('a').runs[0];assert.equal(run.state,'partial');assert.equal(run.complete,0);assert.equal(run.details.authentication.state,'unconfirmed');assert.ok(run.details.diagnostics.items.some(row=>row.code==='authentication-unconfirmed'));
+ }finally{await f.close()}
+});
+
+test('Authenticated ZAP scope excludes logout and separates revisions in comparison policy',async()=>{
+ const {buildZapContext,buildScanPlan}=await api(),url='http://127.0.0.1:15000';assert.match(buildZapContext(url,['/logout']),/<excregexes>/);
+ const profile={repoRoot:'/home/purge/workspace/fixture',url,authProfile:'local-login'},manifest={tools:[{tool:'zap',imageId:'sha256:'+'a'.repeat(64)}]};
+ const first=buildScanPlan('zap',profile,'/tmp/run',manifest,{revision:'879b1b08-0a7d-4f84-9f1d-d50cb7f94072'}),second=buildScanPlan('zap',profile,'/tmp/run',manifest,{revision:'729b1b08-0a7d-4f84-9f1d-d50cb7f94072'});assert.notEqual(first.coverageKey,second.coverageKey);
+});
+
+test('A missing private session fails the actual runner with an explicit authentication outcome',async()=>{
+ const {SecurityWorkbench}=await api(),f=await fixture(),bench=new SecurityWorkbench(f.store,{workspaceRoot:f.workspace,toolStatus:()=>({zap:{ready:true,version:'fixture'}})});
+ try{bench.saveScope('a',f.scope({authProfile:'nonexistent-qa-'+String(process.pid)}));bench.start('a',{requestId:'missing-session-qa',profileRevision:1,tool:'zap'});await bench.active.promise;const run=bench.read('a').runs[0];assert.equal(run.state,'failed');assert.match(run.error_code,/认证/);assert.equal(run.complete,0)}finally{await bench.dispose();await f.close()}
+});
+
+test('ZAP final authentication loss retains a negative receipt for partial-result handling',async()=>{
+ const {buildZapHook}=await api(),root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'zap-auth-lost-')));
+ try{
+  fs.writeFileSync(path.join(root,'.session.json'),JSON.stringify({revision:'879b1b08-0a7d-4f84-9f1d-d50cb7f94072',origin:'http://127.0.0.1:15000',header:'Cookie',value:'sid=HOOK_CANARY_'+ 'X'.repeat(32),verifyPath:'/account',loggedInMarker:'HARNESS_AUTHENTICATED',expiresAt:new Date(Date.now()+600000).toISOString()}),{mode:0o600});
+  const code=`import types,sys,json\nfrom pathlib import Path\nm=types.ModuleType('zap_common');sys.modules['zap_common']=m\nfrom importlib.machinery import SourceFileLoader\nloader=SourceFileLoader('zap_hooks',${JSON.stringify(path.join(root,'loopback-hook.py'))})\nmodule=types.ModuleType(loader.name);loader.exec_module(module);namespace=module.__dict__\nassert '__file__' not in namespace, 'fixed upstream loader contract changed'\ncore=types.SimpleNamespace(send_request=lambda *args,**kwargs:[{'responseHeader':'HTTP/1.1 200 OK\\r\\n','responseBody':'HARNESS_AUTHENTICATED'}])\nzap=types.SimpleNamespace(replacer=types.SimpleNamespace(add_rule=lambda *args,**kwargs:'OK'),spider=types.SimpleNamespace(set_option_process_form=lambda value:None,set_option_post_form=lambda value:None),core=core)\nnamespace['zap_tuned'](zap)\ncore.send_request=lambda *args,**kwargs:[{'responseHeader':'HTTP/1.1 401 Unauthorized\\r\\n','responseBody':'LOGIN_REQUIRED'}]\nnamespace['zap_pre_shutdown'](zap)\nvalue=json.loads(Path(${JSON.stringify(path.join(root,'auth-check.json'))}).read_text());assert value['before'] is True and value['after'] is False and value['checkedRequests']==1\n`;
+  fs.writeFileSync(path.join(root,'loopback-hook.py'),buildZapHook(true));const result=spawnSync('python3',['-c',code],{cwd:root,encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);
+ }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('Known session values are removed before ZAP field truncation can retain long credential prefixes',async()=>{
+ const {parseScanOutput}=await api(),secret='SESSION_CANARY_'+ 'Z'.repeat(2200),value={site:[{'@name':'http://127.0.0.1:15000',alerts:[{pluginid:'10020',riskcode:'1',name:'Title '+secret,instances:[{uri:'http://127.0.0.1:15000/account?opaque='+encodeURIComponent(secret),method:'GET'}]}]}]};
+ const result=parseScanOutput('zap',value,[secret]);assert.ok(!JSON.stringify(result).includes(secret.slice(0,80)));assert.match(result.findings[0].title,/REDACTED/);assert.match(result.findings[0].location,/REDACTED/);
+});
+
+test('Pinned ZAP scans suppress upstream addon downloads instead of changing scanner assets at runtime',async()=>{
+ const {buildScanPlan}=await api(),plan=buildScanPlan('zap',{repoRoot:'/home/purge/workspace/fixture',url:'http://127.0.0.1:15000'},'/tmp/run',{tools:[{tool:'zap',imageId:'sha256:'+'a'.repeat(64)}]});
+ assert.match(plan.args[plan.args.indexOf('-z')+1],/(?:^| )-silent(?: |$)/);
+});

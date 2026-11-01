@@ -1,3 +1,4 @@
+import {validParserTextSummary} from './personal-security-parser-text.mjs';
 import {createHash} from 'node:crypto';
 import {securityReportSummary} from './personal-security-report.mjs';
 import {decorateFinding} from './personal-security-identity.mjs';
@@ -5,7 +6,8 @@ import {redactText} from './personal-evidence-redaction.mjs';
 const text=(v,n=240)=>typeof v==='string'?redactText(v).slice(0,n):null;
 const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const keys=(v,allowed)=>{if(Object.keys(v).some(k=>!allowed.includes(k)))throw Error('此操作包含不支持的字段')};
-const runView=r=>({id:r.id,tool:r.tool,state:r.state,complete:r.complete,profileRevision:r.profile_revision,startedAt:r.started_at,finishedAt:r.finished_at,error:text(r.error_code,240),coveredFiles:r.details?.coveredFiles??null,diagnostics:r.details?.diagnostics?{total:r.details.diagnostics.total,items:r.details.diagnostics.items.slice(0,3).map(d=>({...d,path:text(d.path,160)})),truncated:r.details.diagnostics.truncated||r.details.diagnostics.items.length>3}:null});
+const authView=value=>value?{profile:text(value.profile,48),state:value.state==='verified'?'verified':'unconfirmed',before:value.before===true,after:value.after===true,scannerBefore:value.scannerBefore===true,scannerAfter:value.scannerAfter===true,checkedRequests:value.checkedRequests===2?2:0,limitation:'仅核对扫描前后，不保证全程持续登录'}:null;
+const runView=r=>({id:r.id,tool:r.tool,state:r.state,complete:r.complete,profileRevision:r.profile_revision,startedAt:r.started_at,finishedAt:r.finished_at,error:text(r.error_code,240),coveredFiles:r.details?.coveredFiles??null,authentication:authView(r.details?.authentication),supplemental:validParserTextSummary(r.details?.supplemental)?r.details.supplemental:null,diagnostics:r.details?.diagnostics?{total:r.details.diagnostics.total,items:r.details.diagnostics.items.slice(0,3).map(d=>({...d,path:text(d.path,160)})),truncated:r.details.diagnostics.truncated||r.details.diagnostics.items.length>3}:null});
 const readRun=r=>runView({...r,details:JSON.parse(r.details)});
 const findingView=f=>({id:f.id,revision:f.revision,status:f.status,severity:f.severity,tool:f.tool,rule:text(f.rule,180),title:text(f.title,160),location:text(f.location,300),subject:f.subject?{name:text(f.subject.name,120),version:text(f.subject.version,80),path:text(f.subject.path,180)}:null,identityVersion:f.identityVersion,fieldsShortened:true});
 const budget=value=>{if(Buffer.byteLength(JSON.stringify(value),'utf8')>6000)throw Error('结果超过模型响应上限，请使用更小分页或界面导出');return value};

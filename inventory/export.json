@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-ssh-channel-personal2",
+  "configuration": "merged-private-session-parser-text-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -471,7 +471,7 @@
       "platform": "linux/arm64"
     }
   },
-  "recoveryPoint": "ready-ssh-channel-20261031",
+  "recoveryPoint": "ready-auth-zap-20261101",
   "restoreTarget": {
     "system": "Linux",
     "machine": "aarch64",
@@ -659,8 +659,9 @@
     ]
   },
   "recoveryRetention": {
-    "date": "2026-10-31",
+    "date": "2026-11-01",
     "keptSnapshots": [
+      "ready-auth-zap-20261101",
       "ready-original",
       "ready-pet-corner-20261030",
       "ready-pet-menu-20261030",
@@ -687,11 +688,11 @@
     "latestProbeCopyBootTested": true
   },
   "hostToolUpdate": {
-    "date": "2026-10-31",
-    "baseRecoveryPoint": "ready-ssh-channel-20261031",
+    "date": "2026-11-01",
+    "baseRecoveryPoint": "ready-auth-zap-20261101",
     "includedInVmRecoveryPoint": true,
     "sha256": {
-      "manage.py": "f1c638f4ba7c467ec44059bac8f0d63741a60544437b4c13547648c9aed479a0",
+      "manage.py": "67c1fd856f6ce0f776094005d758ba116c6cf6196c16ce990028388ba025a520",
       "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "fce8ce0e83585e4ece0d43f8817cb71ee287162ef9e19227e1db055de57c553f",
@@ -799,5 +800,12 @@
     "managedSshConcurrencyMitigated": true,
     "qemuSourceDefectDetermined": false,
     "syntheticModelTasks": 1
+  },
+  "authenticatedZapAndParserText": {
+    "instructions": "docs/authenticated-zap.md",
+    "verification": "docs/authenticated-zap-verification.json",
+    "staticPrivateSessionsOnly": true,
+    "semanticParserGapStillPartial": true,
+    "realProjectScansStarted": 0
   }
 }

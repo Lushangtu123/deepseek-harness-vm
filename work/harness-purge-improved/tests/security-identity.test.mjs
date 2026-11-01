@@ -42,9 +42,9 @@ test('Package identity uses full bounded metadata, ignores fix-version changes a
  for(const change of [{PkgName:null},{PkgName:{}},{InstalledVersion:1},{PkgIdentifier:[]},{PkgIdentifier:{PURL:{}}},{PkgPath:'bad\npath'}])assert.throws(()=>parsed([{...pkg('alpha'),...change}]),/包/);
  const subject=parsed([pkg('alpha')]).findings[0].subject;assert.equal(subject.name,'alpha');assert.equal(subject.purl,'pkg:pypi/alpha@1.0');assert.equal(subject.family,parsed([pkg('alpha','2.0')]).findings[0].subject.family)
 });
-test('The Trivy adapter changes coverage identity while existing Semgrep policy identity is preserved',()=>{
+test('Trivy package identity and Semgrep parser-text policy are distinct from legacy coverage',()=>{
  const imageId='sha256:'+'a'.repeat(64),manifest={tools:['trivy','semgrep'].map(tool=>({tool,imageId,version:'fixture'})),rulesSha256:'b'.repeat(64),database:{digest:'database-v1'}},profile={repoRoot:'/home/purge/workspace/project'},old=tool=>createHash('sha256').update(JSON.stringify([tool,imageId,manifest.rulesSha256,manifest.database.digest,profile.repoRoot,null])).digest('hex');
- assert.notEqual(buildScanPlan('trivy',profile,'/tmp/fixture',manifest).coverageKey,old('trivy'));assert.equal(buildScanPlan('semgrep',profile,'/tmp/fixture',manifest).coverageKey,old('semgrep'))
+ assert.notEqual(buildScanPlan('trivy',profile,'/tmp/fixture',manifest).coverageKey,old('trivy'));assert.notEqual(buildScanPlan('semgrep',profile,'/tmp/fixture',manifest).coverageKey,old('semgrep'))
 });
 test('Comparison package labels stay literal Markdown rather than introducing HTML or links',()=>{
  const run={id:'base-test',tool:'trivy',state:'completed',complete:1,coverage_key:'same-policy',started_at:'2026-10-29T00:00:00Z'},raw=parsed([pkg('<script>[package](https://example.invalid)')]),comparison=compareScanSnapshots(run,{...run,id:'next-test'},createScanSnapshot([],['requirements.txt']),createScanSnapshot(raw.findings,raw.coverageFiles));assert.equal(comparison.summary.added,1);assert.doesNotMatch(comparison.markdown,/<script>|\[package\]\(https:/);assert.match(comparison.markdown,/&lt;script&gt;/)

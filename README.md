@@ -2,7 +2,11 @@
 
 当前部署与本轮完成状态统一见[当前状态](docs/current-status.md)。以下带版本、日期的历史记录保留原结论。
 
-当前配置：**合并版 · personal.2 · SSH 并发保护**，更新日期 **2026-10-31（America/Los_Angeles）**。这是专用 Linux VM 的已脱敏配置与代码备份，经用户授权公开发布。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+当前配置：**合并版 · personal.2 · 本地认证与解析补查**，更新日期 **2026-11-01（America/Los_Angeles）**。这是专用 Linux VM 的已脱敏配置与代码备份，经用户授权公开发布。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
+
+## 本地认证与解析缺口补查
+
+安全审计可按名称使用 VM 私有 Cookie/Bearer 会话，控制器与 ZAP 在扫描前后分别核对，失效保留部分结果。Semgrep 解析失败文件可获得有界的 info 文本提示，原 PartialParsing 和待验证状态保留。界面及实际报告已验收；[使用方法](docs/authenticated-zap.md)与[验收记录](docs/authenticated-zap-verification.json)说明范围和限制。
 
 ## SSH 与 PentAGI 更新
 
@@ -54,7 +58,7 @@
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前运行127项插件程序，恢复点`ready-ssh-channel-20261031`。独立磁盘副本实际启动，2616项选定稳定摘要与127项程序匹配，原盘换回正常运行；临时副本已清理，旧17点保留，共18点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/ssh-pentagi-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
+当前运行130项插件程序，恢复点`ready-auth-zap-20261101`。独立磁盘副本实际启动，2624项选定稳定摘要与130项程序匹配，原盘换回正常运行；临时副本已清理，旧18点保留，共19点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/authenticated-zap-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
 
 ## 专业环境安装
 
