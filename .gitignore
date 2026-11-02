@@ -32,3 +32,4 @@ guest-home/.dsh-improved/redteam/*
 guest-home/.dsh/toolchain/pentagi/data/
 guest-home/.dsh/toolchain/pentagi/postgres-data/
 
+**/.config/harness-kali/

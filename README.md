@@ -4,6 +4,10 @@
 
 当前配置：**合并版 · personal.2 · 本地认证与解析补查**，更新日期 **2026-11-01（America/Los_Angeles）**。这是专用 Linux VM 的已脱敏配置与代码备份，经用户授权公开发布。当前运行模式为改进版，VM 内完全访问、自动执行；Mac 仍使用原来的权限与隔离边界。
 
+## Kali Linux 连接
+
+VM 改进版可在聊天中使用 `kali` 技能，通过 `kali-vm status` 和 `kali-vm exec -- 命令 参数` 调用独立 Kali。持久化 Kali 2026.3、真实模型调用、错误密钥拒绝及重启恢复已验收。专用普通用户、固定 SSH 主机公钥；沿用宿主网络隔离和进程配额，不自动 sudo 或启动 Kali。[使用与重新配置](docs/kali-connection.md)。私钥、主机信任文件和 Kali 磁盘不在公开备份内；恢复公开源码后需要重新配置连接。原恢复点尚未覆盖这次接入。
+
 ## Semgrep 解析器自检
 
 新增专用VM内的离线自检命令，用5个合成正反例核对固定镜像或明确指定的已加载候选。当前原复现仍PartialParsing，工具如实返回exit2；未替换扫描器或改写项目。[使用方法](docs/semgrep-parser-check.md) · [验收记录](docs/semgrep-parser-check-verification.json)。

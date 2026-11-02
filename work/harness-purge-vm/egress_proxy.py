@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Loopback egress for the dedicated VM; exact public origins only. No host-file API."""
+"""Loopback VM proxy: exact public origins and one pinned-identity Kali SSH route."""
 import http.server,ipaddress,select,socket,socketserver,threading,time,urllib.parse
 ALLOWED=frozenset({'nodejs.org','registry.npmjs.org','github.com','codeload.github.com','raw.githubusercontent.com','objects.githubusercontent.com','release-assets.githubusercontent.com','api.deepseek.com','ports.ubuntu.com','archive.ubuntu.com','security.ubuntu.com','auth.docker.io','registry-1.docker.io','production.cloudfront.docker.com'})
 PORTS=frozenset({80,443})
@@ -9,6 +9,17 @@ MAX_BYTES=256*1024*1024
 MAX_SECONDS=600
 IDLE_SECONDS=60
 HEADER_SECONDS=10
+KALI_HOST='kali.harness.internal'
+# Host-reviewed IP/MAC pin for the dedicated Kali VM. SSH verifies its pinned
+# host key before client authentication. Revalidate this value if DHCP changes;
+# never discover other LAN addresses or spawn children in this bounded proxy.
+KALI_IPV4='192.168.64.7'
+
+def connect_tunnel(host,port):
+    if host!=KALI_HOST or port!=443:return connect_public(host,port)
+    address=KALI_IPV4;upstream=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    try:upstream.settimeout(5);upstream.connect((address,22));return upstream
+    except BaseException:upstream.close();raise
 
 def validate_authority(host,port):
     if not isinstance(host,str) or host.lower() not in ALLOWED or port not in PORTS:raise ValueError('Origin outside VM egress allowlist')
@@ -63,7 +74,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             target=urllib.parse.urlsplit('//'+self.path)
             if target.username or target.password or target.path or target.query or target.fragment or target.port!=443:raise ValueError('CONNECT443 only')
-            upstream=connect_public(target.hostname,target.port)
+            upstream=connect_tunnel(target.hostname,target.port)
             self.send_response(200,'Connection established');self.end_headers();self.wfile.flush()
             relay(self.connection,upstream)
         except (ValueError,TypeError):self.send_error(403,'Destination not permitted')

@@ -3,7 +3,7 @@
 from pathlib import Path,PurePosixPath
 import argparse,getpass,hashlib,json,os,platform,re,stat,sys
 
-EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route'}
+EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route', '.local/bin/kali-vm'}
 
 def safe_name(value):
  return isinstance(value,str) and bool(value) and not PurePosixPath(value).is_absolute() and '\\' not in value and not any(x in {'','..','.'} for x in value.split('/'))

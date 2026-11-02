@@ -1,8 +1,50 @@
-import unittest,importlib.util,socket,sys,threading,time
+import unittest,importlib.util,socket,sys,threading,time,subprocess
 from unittest.mock import patch
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('egress',Path(__file__).with_name('egress_proxy.py'));mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 class ProxyPolicy(unittest.TestCase):
+ def test_kali_tunnel_needs_no_child_process_or_dns(self):
+  with patch.object(subprocess,'run',side_effect=BlockingIOError(35,'Process limit')) as spawn,patch.object(socket,'getaddrinfo',side_effect=AssertionError('No DNS for Kali')),patch.object(socket,'socket') as fake:
+   self.assertIs(mod.connect_tunnel('kali.harness.internal',443),fake.return_value)
+   fake.return_value.connect.assert_called_once_with(('192.168.64.7',22))
+   spawn.assert_not_called()
+ def test_kali_socket_failure_closes_without_fallback(self):
+  with patch.object(socket,'socket') as fake,patch.object(mod,'connect_public') as public:
+   fake.return_value.connect.side_effect=ConnectionRefusedError('Kali stopped')
+   with self.assertRaises(ConnectionRefusedError):mod.connect_tunnel('kali.harness.internal',443)
+   fake.return_value.close.assert_called_once();public.assert_not_called()
+ def test_only_exact_kali_tunnel_maps_to_guest_ssh(self):
+  connect=getattr(mod,'connect_tunnel',None);self.assertTrue(callable(connect),'Dedicated CONNECT route missing')
+  with patch.object(socket,'socket') as fake,patch.object(mod,'connect_public',return_value='public') as public:
+   self.assertIs(connect('kali.harness.internal',443),fake.return_value)
+   fake.return_value.connect.assert_called_once_with(('192.168.64.7',22))
+   self.assertEqual(connect('api.deepseek.com',443),'public');public.assert_called_once_with('api.deepseek.com',443)
+  for host,port in [('kali.harness.internal',22),('kali.harness.internal.evil.example',443),('192.168.64.7',443),('kali.harness.internal.',443)]:
+   with self.assertRaises(ValueError):connect(host,port)
+  with self.assertRaises(ValueError):mod.validate_authority('kali.harness.internal',80)
+ def test_connect_handler_routes_only_well_formed_authorities(self):
+  connect=getattr(mod,'connect_tunnel',None);self.assertTrue(callable(connect),'Dedicated CONNECT route missing')
+  for authority,allowed in [('kali.harness.internal:443',True),('kali.harness.internal:22',False),('user@kali.harness.internal:443',False),('kali.harness.internal:443/path',False),('kali.harness.internal:443?x',False),('kali.harness.internal:443#x',False)]:
+   client,handler=socket.socketpair();client.settimeout(2);errors=[]
+   def serve():
+    try:mod.Handler(handler,('127.0.0.1',0),object())
+    except BaseException as error:errors.append(error)
+    finally:handler.close()
+   with patch.object(mod,'connect_tunnel',return_value=object()) as route,patch.object(mod,'relay'),patch.object(mod,'connect_public',side_effect=AssertionError('Wrong route')):
+    # close() is required on the fake upstream.
+    route.return_value=unittest.mock.Mock()
+    thread=threading.Thread(target=serve,daemon=True);thread.start()
+    try:
+     client.sendall(('CONNECT '+authority+' HTTP/1.0\r\n\r\n').encode());chunks=[]
+     while True:
+      chunk=client.recv(4096)
+      if not chunk:break
+      chunks.append(chunk)
+     response=b''.join(chunks)
+     self.assertIn(b' 200 ' if allowed else b' 403 ',response)
+     self.assertEqual(route.called,allowed)
+    finally:client.close();thread.join(2);handler.close()
+    self.assertFalse(thread.is_alive());self.assertEqual(errors,[])
  def test_only_observed_docker_registry_origins_added(self):
   for host in ['auth.docker.io','registry-1.docker.io','production.cloudfront.docker.com']:
    self.assertEqual(mod.validate_authority(host,443),(host,443))

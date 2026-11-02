@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-storage-dashboard-personal2",
+  "configuration": "merged-kali-bridge-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -405,6 +405,14 @@
     "guest-home/.config/systemd/user/harness-security.socket": {
       "sourceSha256": "f5465b56afbe42e943a7907b21553ebb17203295448745d51bb170a136d0dc16",
       "sha256": "f5465b56afbe42e943a7907b21553ebb17203295448745d51bb170a136d0dc16"
+    },
+    "guest-home/.local/bin/kali-vm": {
+      "sourceSha256": "a8ed714b00e96a379417c339514b18d388ad6fdaa4bad2193100033cd840f2bb",
+      "sha256": "a8ed714b00e96a379417c339514b18d388ad6fdaa4bad2193100033cd840f2bb"
+    },
+    "guest-home/.dsh-improved/skills/kali/SKILL.md": {
+      "sourceSha256": "b233a0033abc67606ffd0339cdcd9d733e824e071b09447a69e9cf7599b057f2",
+      "sha256": "b233a0033abc67606ffd0339cdcd9d733e824e071b09447a69e9cf7599b057f2"
     }
   },
   "sanitizedGuestFiles": [
@@ -623,7 +631,8 @@
     ".local/bin/codegraph": 493,
     ".local/bin/reverse-case": 493,
     ".local/bin/reverse-route": 493,
-    ".dsh/toolchain/pentagi-cli.py": 448
+    ".dsh/toolchain/pentagi-cli.py": 448,
+    ".local/bin/kali-vm": 448
   },
   "originalCapabilities": {
     "enabledAtExport": true,
@@ -699,14 +708,15 @@
   "hostToolUpdate": {
     "date": "2026-11-01",
     "baseRecoveryPoint": "ready-storage-dashboard-20261101",
-    "includedInVmRecoveryPoint": true,
+    "includedInVmRecoveryPoint": false,
     "sha256": {
       "manage.py": "378cf4d5422db4926715f5dcfac0855c19941920a7fb2b754605afdc2768daa4",
-      "egress_proxy.py": "7dc87aba4bce8c6ede77e1944538e080429da01d67e4c61f69b60adfa3204af3",
+      "egress_proxy.py": "ddb3ea6b057a549b7f4c33e1548695e42455851add6c905c669ca89f33343033",
       "qemu-image.py": "9035d7e44bc5d6c110769fc32c3379d5a49aacf94a00c5277616ba8b1b0bf153",
       "web-entry.mjs": "4cfb4d8fdb8cb82226d6136adbb706ca6f3caf4c0d54cb617b12099c8854d47c",
       "web-health.mjs": "b2b0790e02951e2d89c82383b3a565d06cc5e49ec8cbcf1feca35807a3fd67f3"
-    }
+    },
+    "note": "Only egress_proxy.py changed after this recovery point; Kali bridge is not covered by that point."
   },
   "securityAudit": {
     "date": "2026-10-30",
@@ -855,5 +865,16 @@
     "newDaemon": false,
     "privateUsageDetailsExported": false,
     "verification": "docs/storage-dashboard-verification.json"
+  },
+  "kaliConnection": {
+    "enabledAtExport": true,
+    "transport": "fixed-address SSH tunnel through existing loopback egress proxy",
+    "identityVerifiedBy": "dedicated SSH client pinned host key",
+    "account": "harness",
+    "authMaterialIncluded": false,
+    "restoreRequiresLocalProvisioning": true,
+    "installerAndKaliDiskIncluded": false,
+    "singleTunnelSeconds": 600,
+    "docs": "docs/kali-connection.md"
   }
 }

@@ -3,7 +3,7 @@
 from pathlib import Path,PurePosixPath
 import ast,hashlib,json,re,os,stat
 
-EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route'}
+EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route', '.local/bin/kali-vm'}
 
 PATTERNS={
  'provider-key':re.compile(rb'\bsk-[A-Za-z0-9_-]{20,}\b'),
@@ -31,7 +31,7 @@ def verify(root):
   if p.is_symlink():issue('unsupported','symlink',name);continue
   if not p.is_file() or p==manifest:continue
   raw=p.read_bytes();actual[name]=hashlib.sha256(raw).hexdigest()
-  if p.name.startswith(('.credentials.','guest-ed25519')) or p.name in {'.env','secrets.env','pentagi-admin.json','pentagi-connection.json','known_hosts'} or p.suffix in {'.db','.sqlite','.jsonl','.log','.qcow2','.img','.iso','.tar','.tgz','.zip'} or any(x in {'sessions','storages','node_modules','.ssh'} for x in relative.parts):issue('credential','excluded-artifact',name)
+  if p.name.startswith(('.credentials.','guest-ed25519')) or p.name in {'.env','secrets.env','pentagi-admin.json','pentagi-connection.json','known_hosts'} or p.suffix in {'.db','.sqlite','.jsonl','.log','.qcow2','.img','.iso','.tar','.tgz','.zip'} or any(x in {'sessions','storages','node_modules','.ssh','harness-kali'} for x in relative.parts):issue('credential','excluded-artifact',name)
   for label,pattern in PATTERNS.items():
    if pattern.search(raw):issue('credential',label,name)
   try:text=raw.decode('utf-8');text_count+=1

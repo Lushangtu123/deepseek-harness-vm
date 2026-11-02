@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-01",
+  "scope": "Dedicated Harness VM to separately installed Kali VM; no target scanning",
+  "persistentDisk": {
+    "source": "/dev/vda3",
+    "filesystem": "ext4",
+    "sshActive": true
+  },
+  "sshSettings": {
+    "usepam": "yes",
+    "permitrootlogin": "no",
+    "pubkeyauthentication": "yes",
+    "passwordauthentication": "no",
+    "kbdinteractiveauthentication": "no",
+    "disableforwarding": "yes",
+    "allowusers": "harness",
+    "permittunnel": "no"
+  },
+  "nativeStatus": {
+    "hostname": "kali",
+    "uid": 1000,
+    "kernel": "7.1.5+kali-arm64",
+    "osRelease": "PRETTY_NAME=\"Kali GNU/Linux Rolling\"\nNAME=\"Kali GNU/Linux\"\nVERSION_ID=\"2026.3\"\nVERSION=\"2026.3\"\nVERSION_CODENAME=kali-rolling\nID=kali\nID_LIKE=debian\nHOME_URL=\"https://www.kali.org/\"\nSUPPORT_URL=\"https://forums.kali.org/\"\nBUG_REPORT_URL=\"https://bugs.kali.org/\"\nANSI_COLOR=\"1;31\"\n",
+    "persistentInstall": true
+  },
+  "nmapVersionLine": "Nmap version 7.99 ( https://nmap.org )",
+  "argumentBoundariesVerified": true,
+  "remoteExit23Preserved": true,
+  "passwordlessSudoDenied": true,
+  "authenticationNegativeControls": {
+    "wrongHostKeyRejected": true,
+    "wrongClientKeyRejected": true,
+    "normalConnectionAfterRejections": true,
+    "temporaryPrivateKeyStayedInHarness": true,
+    "temporaryFilesRemoved": true
+  },
+  "actualRestart": {
+    "bootIdChanged": true,
+    "nativeSshAfterReboot": true
+  },
+  "protectedAssets": {
+    "protectedProjectFilesMatched": 459,
+    "projectHeadUnchanged": true,
+    "sixAuditTablesUnchanged": true,
+    "findingsByStatus": {
+      "unverified": 95
+    },
+    "scannerManifestUnchanged": true,
+    "programHashesMatched": 134,
+    "installedToolsPresent": true,
+    "harnessActive": true,
+    "pentagiRunning": true,
+    "harnessVmConfigurationUnchanged": true,
+    "otherFourHostHelpersUnchanged": true,
+    "proxyMatchesReviewedSource": true,
+    "hostResourceLimitsUnchanged": true,
+    "snapshotCount": 24,
+    "recoveryPointStillPredatesKaliBridge": true
+  },
+  "installedSource": {
+    "skillSha256": "b233a0033abc67606ffd0339cdcd9d733e824e071b09447a69e9cf7599b057f2",
+    "proxySha256": "ddb3ea6b057a549b7f4c33e1548695e42455851add6c905c669ca89f33343033",
+    "resourceLimitsUnchanged": true
+  },
+  "chatAcceptance": {
+    "skill": "kali",
+    "nativeCommands": [
+      "kali-vm status",
+      "kali-vm exec -- nmap --version"
+    ],
+    "bothObservedExitCode": 0,
+    "method": "Browser tool details observed, screenshot retained locally"
+  },
+  "recoveryLimit": "Existing 24 recovery points retained; current bridge and Kali disk are not covered",
+  "excluded": "Private keys, known_hosts, credentials, chats, installation media and VM disks"
+}
