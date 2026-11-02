@@ -24,4 +24,10 @@ class KaliClient(unittest.TestCase):
    compile(remote[2],'<kali-status>','exec')
   self.assertNotIn('sudo',remote[2]);self.assertNotIn('subprocess',remote[2])
 
+ def test_inventory_is_readonly_catalog_discovery_and_tool_arguments_stay_literal(self):
+  mod=self.module();argv=mod.ssh_argv(['inventory'],Path('/home/purge'));remote=shlex.split(argv[-1]);self.assertEqual(remote[:2],['python3','-c']);compile(remote[2],'<inventory>','exec');self.assertIn('shutil',remote[2]);self.assertNotIn('sudo',remote[2])
+  argv=mod.ssh_argv(['tool','nmap','--version','x; false','$(touch bad)'],Path('/home/purge'));remote=shlex.split(argv[-1]);self.assertEqual(remote[:2],['python3','-c']);self.assertEqual(remote[3:],['nmap','--version','x; false','$(touch bad)'])
+  for value in [['tool','unknown'],['tool','../nmap'],['tool']]:
+   with self.assertRaises(ValueError):mod.ssh_argv(value,Path('/home/purge'))
+
 if __name__=='__main__':unittest.main()

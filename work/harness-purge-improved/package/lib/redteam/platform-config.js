@@ -11,6 +11,7 @@
  */
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync, lstatSync, mkdtempSync, fchmodSync, fsyncSync, renameSync, rmSync } from 'node:fs'
 import { homedir, platform as osPlatform } from 'node:os'
+import { kaliProbe, resolveKaliTool } from './personal-kali-environment.mjs'
 import { delimiter, isAbsolute, join, resolve, sep } from 'node:path'
 
 /** 配置文件路径。 */
@@ -55,6 +56,7 @@ const EMPTY = () => ({
   version: 1,
   /* auto | windows | linux —— auto 跟 Node process.platform */
   platform: 'auto',
+  executionTarget: 'local',
   toolkitDir: '',
   nucleiTemplatesDir: '',
   /* 额外搜索目录：用户自己的 Kali 工具包 / 绿色版工具夹 */
@@ -83,7 +85,7 @@ function isWinLike(cfg) {
 
 function validPlatformConfig(raw) {
   const record = v => v !== null && typeof v === 'object' && !Array.isArray(v)
-  if (!record(raw) || (raw.version != null && (!['number', 'string'].includes(typeof raw.version) || Number(raw.version) !== 1))
+  if (!record(raw) || (raw.executionTarget !== undefined && !['local','kali'].includes(raw.executionTarget)) || (raw.version != null && (!['number', 'string'].includes(typeof raw.version) || Number(raw.version) !== 1))
       || ['tools', 'env'].some(k => raw[k] != null && !record(raw[k]))
       || ['tools', 'env'].some(k => raw[k] != null && Object.values(raw[k]).some(v => v != null && typeof v !== 'string'))
       || (raw.binDirs != null && (!Array.isArray(raw.binDirs) || raw.binDirs.some(v => typeof v !== 'string')))
@@ -111,6 +113,7 @@ export function loadPlatformConfig(root) {
     return {
       version: Number(raw.version) || 1,
       platform: ['auto', 'windows', 'linux'].includes(raw.platform) ? raw.platform : 'auto',
+      executionTarget: raw.executionTarget || 'local',
       toolkitDir: typeof raw.toolkitDir === 'string' ? raw.toolkitDir.trim() : '',
       nucleiTemplatesDir: typeof raw.nucleiTemplatesDir === 'string' ? raw.nucleiTemplatesDir.trim() : '',
       binDirs,
@@ -141,6 +144,7 @@ export function savePlatformConfig(patch, root) {
   const next = {
     version: 1,
     platform: ['auto', 'windows', 'linux'].includes(patch.platform) ? patch.platform : (prev.platform || 'auto'),
+    executionTarget: patch.executionTarget || prev.executionTarget || 'local',
     toolkitDir: typeof patch.toolkitDir === 'string' ? patch.toolkitDir.trim() : (prev.toolkitDir || ''),
     nucleiTemplatesDir: typeof patch.nucleiTemplatesDir === 'string'
       ? patch.nucleiTemplatesDir.trim()
@@ -214,6 +218,7 @@ export function toolkitDirOf(cfg, root) {
 /** 生效的 nuclei 模板目录（可空）。 */
 export function nucleiTemplatesDirOf(cfg, root) {
   const c = cfg || loadPlatformConfig(root)
+  if (c.executionTarget === 'kali') return null
   if (c.nucleiTemplatesDir && existsSync(c.nucleiTemplatesDir)) return resolve(c.nucleiTemplatesDir)
   return null
 }
@@ -320,6 +325,7 @@ export function resolveTool(id, options = {}) {
   if (!def) {
     return { id, label: id, path: null, source: 'missing', names: [] }
   }
+  if (cfg.executionTarget === 'kali') return {id,label:def.label,names:def.names,...resolveKaliTool(id)}
   const configured = cfg.tools && typeof cfg.tools[id] === 'string' ? cfg.tools[id].trim() : ''
   if (configured) {
     const abs = isAbsolute(configured) ? configured : resolve(configured)
@@ -370,6 +376,11 @@ export function mergeConfigEnv(effectiveEnv, cfg) {
   return out
 }
 
+export async function refreshPlatformSummary(root) {
+  if (loadPlatformConfig(root).executionTarget === 'kali') await kaliProbe.refresh()
+  return platformSummary(root)
+}
+
 /**
  * 平台摘要：给面板与 preflight 用。
  */
@@ -381,18 +392,20 @@ export function platformSummary(root) {
   const found = tools.filter((t) => t.path)
   const missing = tools.filter((t) => !t.path)
   const toolkit = toolkitDirOf(cfg, root)
-  const nuclei = nucleiTemplatesDirOf(cfg, root)
-    || (existsSync(join(toolkit, 'nuclei-templates')) ? join(toolkit, 'nuclei-templates') : null)
+  const nuclei = cfg.executionTarget === 'kali' ? null : (nucleiTemplatesDirOf(cfg, root)
+    || (existsSync(join(toolkit, 'nuclei-templates')) ? join(toolkit, 'nuclei-templates') : null))
   const adapt = envAdaptStatus(root)
   return {
     ok: true,
     config: cfg,
     runtime: {
       nodePlatform: osPlatform(),
+      executionTarget: cfg.executionTarget || 'local',
       effective: win ? 'windows' : 'linux',
       windows: win,
       sep,
     },
+    kali: kaliProbe.current(),
     toolkitDir: toolkit,
     toolkitExists: existsSync(toolkit),
     nucleiTemplatesDir: nuclei,
@@ -403,7 +416,7 @@ export function platformSummary(root) {
       items: tools,
     },
     adapt,
-    hint: adapt.kali
+    hint: cfg.executionTarget === 'kali' ? '当前工具在独立 Kali VM 中运行。下方路径是 Harness 内的 SSH 调用入口；缺少的工具不会回退到本机。本机路径配置保留，切回本机后生效。' : adapt.kali
       ? "Kali detected. System packages are recognized by their distro filenames: impacket-secretsdump, httpx-toolkit (the Python /usr/bin/httpx is not treated as a scanner). fscan, gogo, suo5, frp, chisel, dnsx, subfinder and ksubdomain are not shipped with Kali, so they show as not found unless they are in /usr/bin or ~/go/bin."
       : (win
         ? "Currently adapted for Windows: run in a Kali VM, or fill in tool paths / auto-assign a whole-folder toolkit on this page. For the egress proxy see \"Egress status\" below."
@@ -604,7 +617,13 @@ export function envAdaptStatus(root) {
   let ready = false
   let message = ''
 
-  if (kaliInfo.kali) {
+  if (cfg.executionTarget === 'kali') {
+    const remote = kaliProbe.current()
+    ready = remote.state === 'connected' && found > 0
+    reason = ready ? 'kali-ssh' : 'kali-unavailable'
+    message = ready ? '已连接远程 Kali ' + remote.version + '（' + remote.hostname + '，普通用户 UID ' + remote.uid + '）；找到 ' + found + '/' + tools.length + ' 个工具。缺少的工具仍不可用，不自动安装或提权。'
+      : '远程 Kali 连接或工具未确认。请先启动 Kali VM，再点刷新核对；不会自动切回本机、清除主机公钥或重试执行命令。'
+  } else if (kaliInfo.kali) {
     ready = true
     reason = 'kali'
     message = "Kali detected; by default the local tools are used directly (PATH / default lookup)."
@@ -631,6 +650,7 @@ export function envAdaptStatus(root) {
     ready,
     reason,
     message,
+    executionTarget: cfg.executionTarget || 'local',
     kali: !!kaliInfo.kali,
     kaliSource: kaliInfo.source,
     kaliDetail: kaliInfo.detail,

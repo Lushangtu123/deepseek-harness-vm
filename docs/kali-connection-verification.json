@@ -72,5 +72,68 @@
     "method": "Browser tool details observed, screenshot retained locally"
   },
   "recoveryLimit": "Existing 24 recovery points retained; current bridge and Kali disk are not covered",
-  "excluded": "Private keys, known_hosts, credentials, chats, installation media and VM disks"
+  "excluded": "Private keys, known_hosts, credentials, chats, installation media and VM disks",
+  "environmentPage": {
+    "selection": {
+      "executionTarget": "kali",
+      "reason": "kali-ssh",
+      "ready": true,
+      "toolsFound": 6,
+      "toolsTotal": 15,
+      "toolIds": [
+        "nmap",
+        "nuclei",
+        "masscan",
+        "ffuf",
+        "httpx",
+        "impacket"
+      ],
+      "allSourcesKali": true,
+      "localTemplatesNotUsed": true,
+      "preflightDoesNotClaimAllToolsOrSkillsAvailable": true,
+      "configSavedOnDisk": true
+    },
+    "wrapperVersionCheck": "Nmap version 7.99 ( https://nmap.org )",
+    "missingToolControl": {
+      "id": "fscan",
+      "exitCode": 127
+    },
+    "browserObservedSaved": true,
+    "browserRefreshRetainedSelection": true,
+    "observedAvailableTools": [
+      "nmap",
+      "nuclei",
+      "masscan",
+      "ffuf",
+      "httpx",
+      "impacket"
+    ],
+    "inputOutputPathScope": "Kali VM filesystem; no automatic file or credential copy",
+    "macAndLinuxRegression": {
+      "python": 276,
+      "pluginNode": 493,
+      "hostNode": 139,
+      "restoreAndBackup": 18,
+      "clientBundleReproducible": true
+    },
+    "protectedAssets": {
+      "protectedProjectFilesMatched": 459,
+      "projectHeadUnchanged": true,
+      "sixAuditTablesUnchanged": true,
+      "findingsByStatus": {
+        "unverified": 95
+      },
+      "scannerManifestUnchanged": true,
+      "programHashesMatched": 135,
+      "installedToolsPresent": true,
+      "harnessActive": true,
+      "pentagiRunning": true,
+      "harnessVmConfigurationUnchanged": true,
+      "otherFourHostHelpersUnchanged": true,
+      "proxyMatchesReviewedSource": true,
+      "hostResourceLimitsUnchanged": true,
+      "snapshotCount": 24,
+      "recoveryPointStillPredatesKaliBridge": true
+    }
+  }
 }

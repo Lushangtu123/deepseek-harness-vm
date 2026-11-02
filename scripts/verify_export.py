@@ -3,7 +3,7 @@
 from pathlib import Path,PurePosixPath
 import ast,hashlib,json,re,os,stat
 
-EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route', '.local/bin/kali-vm'}
+EXECUTABLES = {'.dsh/toolchain/pentagi-cli.py', '.local/bin/toolchain-versions', '.local/bin/harness-vm-web', '.local/bin/reverse-case', '.local/bin/dsh', '.local/bin/codegraph', '.local/bin/reverse-route', '.local/bin/kali-vm'} | {'.local/lib/harness-kali-tools/'+name for name in ['nmap', 'nuclei', 'masscan', 'fscan', 'gogo', 'suo5', 'frpc', 'frps', 'chisel', 'ffuf', 'httpx', 'dnsx', 'subfinder', 'ksubdomain', 'impacket']}
 
 PATTERNS={
  'provider-key':re.compile(rb'\bsk-[A-Za-z0-9_-]{20,}\b'),

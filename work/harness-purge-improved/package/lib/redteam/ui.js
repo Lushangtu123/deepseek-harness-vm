@@ -22,6 +22,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { request as httpsRequest } from 'node:https'
 import { dispatch, dispatchAsync } from './store-core.js'
 import { authorizeOwnerRequest } from '../personal-http-auth.mjs'
+import { kaliProbe } from './personal-kali-environment.mjs'
 import { handleToolchainOp } from './personal-toolchain-status.mjs'
 import { handleSecurityOp } from './personal-security-workbench.mjs'
 /* 技能可用性判定与 redteam_preflight 共用同一份实现（环境变量 / 本机路径 / 占位符） */
@@ -278,13 +279,15 @@ function profileDirOf(ctx) {
  * 环境适配 op：面板 EnvTab 读写 `$DSH_HOME/redteam/config.json`。
  * @returns JSON 结果，或 undefined 表示不是这个 op。
  */
-function handlePlatformOp(store, request) {
+async function handlePlatformOp(store, request) {
   const op = request && request.op
   if (op !== 'platformConfigGet' && op !== 'platformConfigSave' && op !== 'platformAssignToolkit'
     && op !== 'platformEnvAdaptStatus' && op !== 'platformEnvAdaptSkip') {
     return undefined
   }
   const root = (store && store.root) || redteamRoot()
+  if (op === 'platformConfigGet' || (op === 'platformEnvAdaptStatus' && loadPlatformConfig(root).executionTarget === 'kali')
+    || (op === 'platformConfigSave' && request.config?.executionTarget === 'kali')) await kaliProbe.refresh()
   // EnvAdaptSendGate 轮询就绪 / 「暂不配置」；缺分支时前端永远拿不到 ready。
   if (op === 'platformEnvAdaptStatus') return Object.assign({ ok: true }, envAdaptStatus(root))
   if (op === 'platformEnvAdaptSkip') {
@@ -1142,7 +1145,7 @@ export function apply(ctx) {
         const securityResult = await handleSecurityOp(store, request)
         if (securityResult !== undefined) { sendJson(res, 200, securityResult); return }
         if (request.op === 'sessionBinding') { sendJson(res, 200, sessionBindingStatus(ctx, request.sessionId)); return }
-        const platformResult = handlePlatformOp(store, request)
+        const platformResult = await handlePlatformOp(store, request)
         if (platformResult !== undefined) {
           sendJson(res, 200, platformResult)
           return

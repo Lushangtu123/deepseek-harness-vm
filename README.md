@@ -6,7 +6,7 @@
 
 ## Kali Linux 连接
 
-VM 改进版可在聊天中使用 `kali` 技能，通过 `kali-vm status` 和 `kali-vm exec -- 命令 参数` 调用独立 Kali。持久化 Kali 2026.3、真实模型调用、错误密钥拒绝及重启恢复已验收。专用普通用户、固定 SSH 主机公钥；沿用宿主网络隔离和进程配额，不自动 sudo 或启动 Kali。[使用与重新配置](docs/kali-connection.md)。私钥、主机信任文件和 Kali 磁盘不在公开备份内；恢复公开源码后需要重新配置连接。原恢复点尚未覆盖这次接入。
+演练台“环境适配”现可选择并保存“远程 Kali”，显示真实6/15项工具和SSH调用入口；本机配置保留，不混用本机工具。VM 改进版也可在聊天中使用 `kali` 技能，通过 `kali-vm status` 和 `kali-vm exec -- 命令 参数` 调用独立 Kali。持久化 Kali 2026.3、真实模型调用、错误密钥拒绝及重启恢复已验收。专用普通用户、固定 SSH 主机公钥；沿用宿主网络隔离和进程配额，不自动 sudo 或启动 Kali。[使用与重新配置](docs/kali-connection.md)。私钥、主机信任文件和 Kali 磁盘不在公开备份内；恢复公开源码后需要重新配置连接。原恢复点尚未覆盖这次接入。
 
 ## Semgrep 解析器自检
 
@@ -82,7 +82,7 @@ Mac统一启动器选项11可检查并显式切换已加载Semgrep候选，保�
 
 打开会话标题旁的 **dsh-purge → Permissions（权限）→ 原版能力**，拨动后确认重启服务。切换完成后刷新 Harness 并新建会话。本次导出保留已开启的选择；开关关闭时采用日常运行时，启用时采用隔离的原版补丁运行时，共用项目、会话和工作台。原版提示词、权限和沙盒行为随开关切换，详细边界见[开关说明](docs/original-capabilities.md)。
 
-当前运行134项插件程序，恢复点`ready-storage-dashboard-20261101`。独立磁盘副本实际启动，2635项选定稳定摘要与134项程序匹配，原盘换回正常运行；临时副本已清理，旧23点保留，共24点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/storage-dashboard-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
+上一轮容量验收时运行134项插件程序，本轮 Kali 环境适配更新后为135项；既有恢复点`ready-storage-dashboard-20261101`。独立磁盘副本实际启动，2635项选定稳定摘要与134项程序匹配，原盘换回正常运行；临时副本已清理，旧23点保留，共24点。真实项目459项受跟踪文件、HEAD与6张审计表不变，95条发现仍待验证。Semgrep语义解析缺口与QEMU内部具体缺陷继续保留。[本轮验收](docs/storage-dashboard-verification.json) · [此前SIGKILL与实际Mac睡眠验收](docs/security-lifecycle-verification.json)。源码导出不含密钥、聊天、项目数据库或VM磁盘。
 
 ## 专业环境安装
 

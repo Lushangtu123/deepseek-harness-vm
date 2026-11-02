@@ -1,3 +1,4 @@
+import { kaliPreflight } from './personal-kali-environment.mjs'
 import { projectSlotsFor } from './personal-project-slots.mjs'
 import { handleSecurityOp } from './personal-security-workbench.mjs'
 import { securityModelWire } from './personal-security-model.mjs'
@@ -29,7 +30,7 @@ import { bundledSkillSummaries, checkSkill, summarizeSkills, expandSkillPath, re
 import {
   loadPlatformConfig,
   mergeConfigEnv,
-  platformSummary,
+  platformSummary, refreshPlatformSummary,
   toolkitDirOf,
 } from './platform-config.js'
 import { maxAgentsOf, DEFAULT_MAX_AGENTS, MAX_AGENTS_LIMIT } from './settings.js'
@@ -403,8 +404,10 @@ export function apply(ctx) {
     async execute(args) {
       let skills
       try { skills = typeof ctx.get === 'function' ? ctx.get('skills') : null } catch { skills = null }
-      const plat = platformSummary()
-      const cfg = loadPlatformConfig()
+      const plat = await refreshPlatformSummary()
+      if (!plat.ok) return JSON.stringify(plat)
+      const cfg = plat.config
+      if (plat.runtime.executionTarget === 'kali') return JSON.stringify(kaliPreflight(plat), null, 2)
       /* 环境变量的真实来源：进程环境 + $DSH_HOME/.env + 平台 config.json env */
       const envFile = expandSkillPath('$DSH_HOME/.env')
       const effectiveEnv = mergeConfigEnv({ ...process.env }, cfg)

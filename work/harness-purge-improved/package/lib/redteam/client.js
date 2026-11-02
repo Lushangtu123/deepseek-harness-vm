@@ -2862,6 +2862,7 @@ window.__ModuleLoader__.load({
         const receipt = r.writeReceipt, c = r.config
         const has = (o, key) => Object.prototype.hasOwnProperty.call(o, key)
         return receipt?.operationId === id && receipt.op === 'platformConfigSave' && receipt.state === 'committed'
+          && (c.executionTarget || 'local') === (wanted.executionTarget || 'local')
           && c.platform === wanted.platform && c.notes === wanted.notes
           && ['toolkitDir', 'nucleiTemplatesDir'].every(key => typeof c[key] === 'string' && c[key].trim() === String(wanted[key] || '').trim())
           && Array.isArray(c.binDirs) && JSON.stringify(c.binDirs) === JSON.stringify((wanted.binDirs || []).map(x => String(x || '').trim()).filter(Boolean))
@@ -2872,6 +2873,7 @@ window.__ModuleLoader__.load({
       const makeDraft = r => {
         const c = r.config
         return {
+          executionTarget: c.executionTarget || 'local',
           platform: c.platform || 'auto', toolkitDir: c.toolkitDir || '', nucleiTemplatesDir: c.nucleiTemplatesDir || '',
           binDirsText: (c.binDirs || []).join('\n'), tools: { ...(c.tools || {}) },
           env: { FOFA_KEY: '', REDTEAM_VPS_HOST: '', REDTEAM_VPS_KEY: '', ...(c.env || {}) }, notes: c.notes || '',
@@ -2951,6 +2953,7 @@ window.__ModuleLoader__.load({
         const d = editor.current
         if (!d) return
         mutate('platformConfigSave', { config: {
+          executionTarget: d.executionTarget || 'local',
           platform: d.platform, toolkitDir: d.toolkitDir, nucleiTemplatesDir: d.nucleiTemplatesDir,
           binDirs: String(d.binDirsText || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean),
           tools: d.tools, env: d.env, notes: d.notes, envAdaptConfigured: true, envAdaptSkip: false,
@@ -2973,7 +2976,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'rt-main' },
         h('div', { className: 'rt-toolbar' },
           h('span', { style: { fontWeight: 600 } }, '环境适配'),
-          h('span', { className: 'rt-tag' }, runtime.effective === 'windows' ? 'Windows' : 'Linux/Kali'),
+          h('span', { className: 'rt-tag' }, runtime.executionTarget === 'kali' ? '远程 Kali' : (runtime.effective === 'windows' ? 'Windows' : '本机 Linux')),
           adapt.kali ? h('span', { className: 'rt-tag rt-tag-live' }, 'Kali') : null,
           h('span', { className: 'rt-tag' + (adapt.ready ? ' rt-tag-live' : ' rt-tag-warn') },
             adapt.ready ? ('就绪 · ' + (adapt.reason || '')) : '待配置'),
@@ -2989,6 +2992,17 @@ window.__ModuleLoader__.load({
         h('div', { className: 'rt-card', style: { margin: '0 0 8px', fontSize: 12, lineHeight: 1.6 } },
           adapt.message
             || '均可选填：留空则用默认路径/自动查找。填了的覆盖默认。密钥类只在需要测绘/反弹时才填。'),
+        h('div', { className: 'rt-card', style: { margin: '0 0 8px', fontSize: 12, lineHeight: 1.6 } },
+          h('div', { style: { fontWeight: 600, marginBottom: 6 } }, '工具执行位置'),
+          h('label', null, '选择本机或已配置的独立 Kali VM',
+            h('select', { className: 'rt-input', 'aria-label': '工具执行位置', disabled: busy || !draft || !!err,
+              value: draft?.executionTarget || 'local', onChange: e => edit('executionTarget', e.target.value),
+              style: { display: 'block', width: '100%', marginTop: 6 } },
+              h('option', { value: 'local' }, 'Harness 本机'), h('option', { value: 'kali' }, '远程 Kali · 专用 SSH'))),
+          h('div', { role: 'status', style: { marginTop: 8 } },
+            data?.kali?.state === 'connected' ? 'Kali 连接已确认 · ' + data.kali.hostname + ' · ' + data.kali.version + ' · UID ' + data.kali.uid
+              : 'Kali 连接未确认（' + (data?.kali?.state || 'not-checked') + '）。先启动 Kali，再点刷新；不会自动启动或提权。'),
+          h('div', { style: { marginTop: 6, opacity: 0.85 } }, '选择后点保存。远程工具通过专用 SSH 执行，缺失工具不会回退到本机。本机路径保留；以下目录、密钥与 VPS 配置不会复制到 Kali；输入、输出和模板参数都应使用 Kali 内路径。')),
         h('div', { className: 'rt-card', style: { margin: '0 0 8px', fontSize: 12, lineHeight: 1.6 } },
           h('div', { style: { fontWeight: 600, marginBottom: 6 } }, '整包文件夹 → 自动分配工具'),
           h('div', { style: { marginBottom: 8, opacity: 0.9 } },
@@ -3061,12 +3075,12 @@ window.__ModuleLoader__.load({
           h('div', { className: 'rt-card' },
             h('h4', null, '工具可执行文件（留空＝自动查找）'),
             h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 8 } },
-              '解析顺序：本表绝对路径 → toolkitDir → binDirs → PATH。留空即走默认查找。'),
+              runtime.executionTarget === 'kali' ? '当前展示专用 SSH 工具入口。下方输入仍保存本机路径，切回本机后生效；远程缺失工具不会用本机替代。' : '解析顺序：本表绝对路径 → toolkitDir → binDirs → PATH。留空即走默认查找。'),
             tools.map((t) => h('div', { key: t.id, style: { marginBottom: 8 } },
               h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 } },
                 h('span', { style: { fontWeight: 600, minWidth: 88 } }, t.label || t.id),
                 t.path
-                  ? h('span', { className: 'rt-tag rt-tag-live', title: t.path }, t.source + ' · 已找到')
+                  ? h('span', { className: 'rt-tag rt-tag-live', title: t.path }, (t.source === 'kali' ? '远程 Kali' : t.source) + ' · 已找到')
                   : h('span', { className: 'rt-tag rt-tag-warn' }, '未找到（可留空等装好）')),
               h('input', {
                 className: 'rt-input', style: { width: '100%' },
@@ -3074,7 +3088,7 @@ window.__ModuleLoader__.load({
                 value: (draft.tools && draft.tools[t.id]) || '',
                 onChange: (e) => setTool(t.id, e.target.value),
               }),
-              t.path ? h('div', { className: 'rt-mono', style: { fontSize: 10.5, marginTop: 2, opacity: 0.8 } }, t.path) : null))),
+              t.path ? h('div', { className: 'rt-mono', style: { fontSize: 10.5, marginTop: 2, opacity: 0.8 } }, t.path + (t.remotePath ? ' → Kali ' + t.remotePath : '')) : null))),
           h('div', { className: 'rt-card' },
             h('h4', null, '备注'),
             h('textarea', {
