@@ -4,13 +4,17 @@ from pathlib import Path
 import os,shlex,sys
 
 STATUS_SOURCE="import json,os,platform; from pathlib import Path; print(json.dumps({'hostname':platform.node(),'uid':os.getuid(),'kernel':platform.release(),'osRelease':Path('/etc/os-release').read_text(),'persistentInstall':Path('/var/lib/harness-kali-install-complete').is_file()}))"
-TOOL_NAMES={'nmap':['nmap'],'nuclei':['nuclei'],'masscan':['masscan'],'fscan':['fscan'],'gogo':['gogo'],'suo5':['suo5'],'frpc':['frpc'],'frps':['frps'],'chisel':['chisel'],'ffuf':['ffuf'],'httpx':['httpx-toolkit','pd-httpx','httpx'],'dnsx':['dnsx'],'subfinder':['subfinder'],'ksubdomain':['ksubdomain'],'impacket':['impacket-secretsdump','secretsdump.py']}
+TOOL_NAMES={'nmap': ['nmap'], 'nuclei': ['nuclei'], 'masscan': ['masscan'], 'fscan': ['fscan'], 'gogo': ['gogo'], 'suo5': ['suo5'], 'frpc': ['frpc'], 'frps': ['frps'], 'chisel': ['chisel'], 'ffuf': ['ffuf'], 'httpx': ['httpx-toolkit', 'pd-httpx', 'httpx'], 'dnsx': ['dnsx'], 'subfinder': ['subfinder'], 'ksubdomain': ['ksubdomain'], 'impacket': ['impacket-secretsdump', 'secretsdump.py'], 'curl': ['curl'], 'wget': ['wget'], 'dig': ['dig'], 'openssl': ['openssl'], 'tcpdump': ['tcpdump'], 'tshark': ['tshark'], 'whatweb': ['whatweb'], 'nikto': ['nikto'], 'sqlmap': ['sqlmap'], 'file': ['file'], 'strings': ['strings']}
 DISCOVERY_SOURCE='names='+repr(TOOL_NAMES)+'\n'+r'''
 import json,os,platform,shutil,sys
 from pathlib import Path
 def locate(identity):
  for name in names[identity]:
-  value=shutil.which(name)
+  home=Path.home()
+  directories=[part for part in os.environ.get('PATH','').split(os.pathsep) if os.path.isabs(part)]
+  directories.extend([str(home/'.local/bin'),str(home/'go/bin'),str(home/'.pdtm/go/bin')])
+  search=os.pathsep.join(dict.fromkeys(directories))
+  value=shutil.which(name,path=search)
   if not value:continue
   if identity=='httpx':
    try:

@@ -1,4 +1,6 @@
-import importlib.util,shlex,tempfile,unittest
+import importlib.util,shlex,tempfile,unittest,re,os
+from contextlib import chdir
+from unittest.mock import patch
 from pathlib import Path
 
 class KaliClient(unittest.TestCase):
@@ -29,5 +31,27 @@ class KaliClient(unittest.TestCase):
   argv=mod.ssh_argv(['tool','nmap','--version','x; false','$(touch bad)'],Path('/home/purge'));remote=shlex.split(argv[-1]);self.assertEqual(remote[:2],['python3','-c']);self.assertEqual(remote[3:],['nmap','--version','x; false','$(touch bad)'])
   for value in [['tool','unknown'],['tool','../nmap'],['tool']]:
    with self.assertRaises(ValueError):mod.ssh_argv(value,Path('/home/purge'))
+
+ def test_tool_discovery_includes_the_kali_users_private_install_directory(self):
+  mod=self.module()
+  with tempfile.TemporaryDirectory() as directory:
+   home=Path(directory);binary=home/'.local/bin/fscan';binary.parent.mkdir(parents=True);binary.write_text('#!/bin/sh\nexit 0\n');binary.chmod(0o700)
+   with patch.dict(os.environ,{'HOME':str(home),'PATH':''}):
+    scope={};exec(mod.DISCOVERY_SOURCE,scope);self.assertEqual(scope['locate']('fscan'),str(binary))
+ def test_network_and_file_inspection_catalogs_match_across_cli_and_plugin(self):
+  mod=self.module();expected={'curl','wget','dig','openssl','tcpdump','tshark','whatweb','nikto','sqlmap','file','strings'}
+  self.assertTrue(expected.issubset(mod.TOOL_NAMES),'Additional installed Kali commands are not exposed')
+  base=Path(__file__).resolve().parent.parent/'harness-purge-improved/package/lib/redteam'
+  source=(base/'personal-kali-environment.mjs').read_text();ids=re.search(r'KALI_TOOL_IDS = Object.freeze\((\[.*?\])\)',source).group(1);self.assertEqual(set(re.findall(r"'([^']+)'",ids)),set(mod.TOOL_NAMES))
+  source=(base/'platform-config.js').read_text().split('export const TOOL_CATALOG = [',1)[1].split('const EMPTY',1)[0];self.assertEqual(set(re.findall(r"id:\s*'([^']+)'",source)),set(mod.TOOL_NAMES))
+
+ def test_empty_or_relative_path_does_not_shadow_verified_user_bin_from_current_directory(self):
+  mod=self.module()
+  with tempfile.TemporaryDirectory() as directory:
+   home=Path(directory)/'home';candidate=home/'.local/bin/fscan';candidate.parent.mkdir(parents=True);candidate.write_text('user-bin');candidate.chmod(0o700)
+   cwd=Path(directory)/'work';cwd.mkdir();impostor=cwd/'fscan';impostor.write_text('cwd-impostor');impostor.chmod(0o700)
+   for path in ['',':','.:relative']:
+    with chdir(cwd),patch.dict(os.environ,{'HOME':str(home),'PATH':path}):
+     scope={};exec(mod.DISCOVERY_SOURCE,scope);self.assertEqual(scope['locate']('fscan'),str(candidate))
 
 if __name__=='__main__':unittest.main()

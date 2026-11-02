@@ -16,7 +16,7 @@ class Preflight(unittest.TestCase):
   self.put('tools/reverse-skill/reverse-skill-fixture/AGENTS.md','fixture')
   self.put('tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless','fixture').chmod(0o755)
   self.inventory['executionRequirements']={name:0o700 for name in ['.local/bin/harness-vm-web','.local/bin/toolchain-versions','.local/bin/dsh','.local/bin/codegraph','.local/bin/reverse-case','.local/bin/reverse-route','.dsh/toolchain/pentagi-cli.py','.local/bin/kali-vm']}
-  self.inventory['executionRequirements'].update({'.local/lib/harness-kali-tools/'+name:0o700 for name in ['nmap', 'nuclei', 'masscan', 'fscan', 'gogo', 'suo5', 'frpc', 'frps', 'chisel', 'ffuf', 'httpx', 'dnsx', 'subfinder', 'ksubdomain', 'impacket']})
+  self.inventory['executionRequirements'].update({'.local/lib/harness-kali-tools/'+name:0o700 for name in ['nmap', 'nuclei', 'masscan', 'fscan', 'gogo', 'suo5', 'frpc', 'frps', 'chisel', 'ffuf', 'httpx', 'dnsx', 'subfinder', 'ksubdomain', 'impacket', 'curl', 'wget', 'dig', 'openssl', 'tcpdump', 'tshark', 'whatweb', 'nikto', 'sqlmap', 'file', 'strings']})
   for name,mode in self.inventory['executionRequirements'].items():
    p=self.put(name,'#!/bin/sh\nexit 0\n');p.chmod(mode);self.inventory['guestFiles']['guest-home/'+name]={'sourceSha256':hashlib.sha256(p.read_bytes()).hexdigest()}
   self.secret='synthetic-local-credential-value'

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "configuration": "merged-kali-environment-personal2",
+  "configuration": "merged-kali-tools-personal2",
   "source": "live dedicated VM and hash-matched host sources",
   "guestFiles": {
     "guest-home/.dsh-improved/cordis.patch.yml": {
@@ -407,8 +407,8 @@
       "sha256": "f5465b56afbe42e943a7907b21553ebb17203295448745d51bb170a136d0dc16"
     },
     "guest-home/.local/bin/kali-vm": {
-      "sourceSha256": "d6d2fe807d4e95eac75f5f8c8a6fab99ec7ba31db33db628d9602fbcf9915df1",
-      "sha256": "d6d2fe807d4e95eac75f5f8c8a6fab99ec7ba31db33db628d9602fbcf9915df1"
+      "sourceSha256": "fe8aaf61317f6dc8f24e74da351a8b5951b1dbe1a0d8cdd178b0454e33134667",
+      "sha256": "fe8aaf61317f6dc8f24e74da351a8b5951b1dbe1a0d8cdd178b0454e33134667"
     },
     "guest-home/.dsh-improved/skills/kali/SKILL.md": {
       "sourceSha256": "b233a0033abc67606ffd0339cdcd9d733e824e071b09447a69e9cf7599b057f2",
@@ -473,6 +473,50 @@
     "guest-home/.local/lib/harness-kali-tools/suo5": {
       "sourceSha256": "8a074ff9de5de7ede3fd120cac5ca7e9f5c0188740ca9f0d119a37806d844308",
       "sha256": "8a074ff9de5de7ede3fd120cac5ca7e9f5c0188740ca9f0d119a37806d844308"
+    },
+    "guest-home/.local/lib/harness-kali-tools/curl": {
+      "sourceSha256": "18854e833d17886dcde9fa86eeeaf330050e91aed3951645b4c3e0d17bd6fca5",
+      "sha256": "18854e833d17886dcde9fa86eeeaf330050e91aed3951645b4c3e0d17bd6fca5"
+    },
+    "guest-home/.local/lib/harness-kali-tools/dig": {
+      "sourceSha256": "de440d68e5ec093b9b40af469b88da0d7a7d5523e4088b880aaa13639ac3c26a",
+      "sha256": "de440d68e5ec093b9b40af469b88da0d7a7d5523e4088b880aaa13639ac3c26a"
+    },
+    "guest-home/.local/lib/harness-kali-tools/file": {
+      "sourceSha256": "530acfaf18825dc39ba7ca7ed89a583e95c41ee6ddbfd4c95606887b908062ac",
+      "sha256": "530acfaf18825dc39ba7ca7ed89a583e95c41ee6ddbfd4c95606887b908062ac"
+    },
+    "guest-home/.local/lib/harness-kali-tools/nikto": {
+      "sourceSha256": "e65ed55692a4c5d63d8fa077b647f8de15b09ec383fdcdd8ff9ce921ef2a7d31",
+      "sha256": "e65ed55692a4c5d63d8fa077b647f8de15b09ec383fdcdd8ff9ce921ef2a7d31"
+    },
+    "guest-home/.local/lib/harness-kali-tools/openssl": {
+      "sourceSha256": "dd7624c9f0a8497892e82cf1aa2e0a0e0a8b0142bfe0eaf2dd2ff088e6575d0a",
+      "sha256": "dd7624c9f0a8497892e82cf1aa2e0a0e0a8b0142bfe0eaf2dd2ff088e6575d0a"
+    },
+    "guest-home/.local/lib/harness-kali-tools/sqlmap": {
+      "sourceSha256": "b34de061136479a9fd254b8227bea35b68fc2ea70e8e91473e3d41516bddfff2",
+      "sha256": "b34de061136479a9fd254b8227bea35b68fc2ea70e8e91473e3d41516bddfff2"
+    },
+    "guest-home/.local/lib/harness-kali-tools/strings": {
+      "sourceSha256": "b3eff90050c992ce297b0ba3ba978442f0d0446a38960126ef94a4e62ee6a406",
+      "sha256": "b3eff90050c992ce297b0ba3ba978442f0d0446a38960126ef94a4e62ee6a406"
+    },
+    "guest-home/.local/lib/harness-kali-tools/tcpdump": {
+      "sourceSha256": "ac9dba02fa60862b41d645ca5278a130f51f5309ad51f94eb1d8d0e871a989f6",
+      "sha256": "ac9dba02fa60862b41d645ca5278a130f51f5309ad51f94eb1d8d0e871a989f6"
+    },
+    "guest-home/.local/lib/harness-kali-tools/tshark": {
+      "sourceSha256": "2c43939eb73387da07f63a13a26da81313409ab612528fac1d6e74cac5144a8c",
+      "sha256": "2c43939eb73387da07f63a13a26da81313409ab612528fac1d6e74cac5144a8c"
+    },
+    "guest-home/.local/lib/harness-kali-tools/wget": {
+      "sourceSha256": "71304166502951c1ca94dda88bb383b1d6b1d00009d67d1c8a3a757a1f6e1d85",
+      "sha256": "71304166502951c1ca94dda88bb383b1d6b1d00009d67d1c8a3a757a1f6e1d85"
+    },
+    "guest-home/.local/lib/harness-kali-tools/whatweb": {
+      "sourceSha256": "c549ddc683a1088cad28c172505137fb7d3b064cbc5b4c6747a1c2b086e7cc0e",
+      "sha256": "c549ddc683a1088cad28c172505137fb7d3b064cbc5b4c6747a1c2b086e7cc0e"
     }
   },
   "sanitizedGuestFiles": [
@@ -624,7 +668,7 @@
     "lib/redteam/personal-binding-client.mjs": "ed79852ca36e508272a56ea4acf53cb3308ab35ac887f76f750341fa661935dd",
     "lib/redteam/personal-evidence-receipts.mjs": "f8729c9aea4e727c736b04bf84a577e7e4d053e80ccabaa522448ee0212879ee",
     "lib/redteam/personal-evidence-redaction.mjs": "693b56a7b9ab67a2033a8855929588eb1f7b08a1e881f4f9c4549395e3c94c69",
-    "lib/redteam/personal-kali-environment.mjs": "01faec890a36861acf4829192cf4e860a4999ea6fa85b2ce2fe274b2a76eec03",
+    "lib/redteam/personal-kali-environment.mjs": "f34264f085d1d935c1722f8839fd332fa13ce76e85c247191b328175d25a7c09",
     "lib/redteam/personal-project-slots.mjs": "ed2612f728f4f55293b325e639af0b2808cd250442c7a0cc1e1a2ba00431cdd4",
     "lib/redteam/personal-security-auth.mjs": "ad1189de9c1207ddf73937de6fd7126dfd44c423e58af7e2bd9decd48c89878b",
     "lib/redteam/personal-security-client.mjs": "dc00d054d9671ef8e50bbf00bce99034d589c980ff37534697a76e162bda2fcd",
@@ -640,7 +684,7 @@
     "lib/redteam/personal-session-bindings.mjs": "ab18604ac7a30583939ee905ffa77bef26bb6c9d28ef2f9a1223f7f2e277d34a",
     "lib/redteam/personal-session-resolution.mjs": "eee3996e6531646424c8915267e547f5f9235009253f5938264f959ec5d09919",
     "lib/redteam/personal-toolchain-status.mjs": "95f433327a75f4e02498194f765830007a6b4936166c51734deb104f7c17c6f5",
-    "lib/redteam/platform-config.js": "8e2f28371293111a2ee9398555ac36f3d26de754016fb8f9f8abd57ca19a784e",
+    "lib/redteam/platform-config.js": "4c106ddab81845efe98bfb304035475278495e239e760ea4c3b3ed275edc6946",
     "lib/redteam/preset-composition.js": "f5a2ff3a3cdf9a642515deb13f10bfaf100abdde7cffbb89183538dab6ef5bae",
     "lib/redteam/report-replay.js": "f502847a536ea635d2a38eba7a1b6c331b1d5de42db9aba94ec4374af0fc1122",
     "lib/redteam/role-section.js": "7df9e72dfbc27dcec7d66a2685ff3e1c4d4cf6f329fb8d5b34edba29a057846b",
@@ -711,7 +755,18 @@
     ".local/lib/harness-kali-tools/nmap": 448,
     ".local/lib/harness-kali-tools/nuclei": 448,
     ".local/lib/harness-kali-tools/subfinder": 448,
-    ".local/lib/harness-kali-tools/suo5": 448
+    ".local/lib/harness-kali-tools/suo5": 448,
+    ".local/lib/harness-kali-tools/curl": 448,
+    ".local/lib/harness-kali-tools/dig": 448,
+    ".local/lib/harness-kali-tools/file": 448,
+    ".local/lib/harness-kali-tools/nikto": 448,
+    ".local/lib/harness-kali-tools/openssl": 448,
+    ".local/lib/harness-kali-tools/sqlmap": 448,
+    ".local/lib/harness-kali-tools/strings": 448,
+    ".local/lib/harness-kali-tools/tcpdump": 448,
+    ".local/lib/harness-kali-tools/tshark": 448,
+    ".local/lib/harness-kali-tools/wget": 448,
+    ".local/lib/harness-kali-tools/whatweb": 448
   },
   "originalCapabilities": {
     "enabledAtExport": true,
@@ -963,15 +1018,45 @@
         "nmap",
         "nuclei",
         "masscan",
+        "fscan",
+        "gogo",
+        "suo5",
+        "frpc",
+        "frps",
+        "chisel",
         "ffuf",
         "httpx",
-        "impacket"
+        "dnsx",
+        "subfinder",
+        "impacket",
+        "curl",
+        "wget",
+        "dig",
+        "openssl",
+        "tcpdump",
+        "tshark",
+        "whatweb",
+        "nikto",
+        "sqlmap",
+        "file",
+        "strings"
       ],
-      "catalogTotal": 15,
+      "catalogTotal": 26,
       "discoveryTimeoutMs": 12000,
       "snapshotMaxAgeMs": 90000,
       "fallbackToLocal": false,
       "configIncluded": false
+    },
+    "toolExpansion": {
+      "rootlessBinaryCount": 8,
+      "lockFile": "work/harness-purge-vm/kali-tools-lock.json",
+      "binariesIncluded": false,
+      "missingTools": [
+        "ksubdomain"
+      ],
+      "chromeSavedAndRefreshVerified": true,
+      "actualVersionOrHelpChecks": 25,
+      "noExtraPrivileges": true
     }
   }
 }

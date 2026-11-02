@@ -13,11 +13,30 @@ kali-vm shell
 
 ## 演练台「环境适配」
 
-页面新增“工具执行位置”：选择“远程 Kali · 专用 SSH”后点“保存”，顶部显示远程 Kali 和实际找到的工具数。刷新只通过既有 SSH 连接读取系统及工具可执行文件位置，不扫描目标。当前已保存远程 Kali，并实际识别 Nmap、Nuclei、Masscan、ffuf、httpx-toolkit 和 Impacket 共6/15项；其它工具未找到，不自动安装。
+页面新增“工具执行位置”：选择“远程 Kali · 专用 SSH”后点“保存”，顶部显示远程 Kali 和实际找到的工具数。刷新只通过既有 SSH 连接读取系统及工具可执行文件位置，不扫描目标。当前已保存远程 Kali，工具目录扩展到26项，实际找到25项。首次接入时的6/15项记录保留为历史。Chrome 已核对25/26状态、保存成功和整页刷新后仍选中远程 Kali；不是仅凭后端结果推断界面。
 
 页面列出的 `~/.local/lib/harness-kali-tools/<工具ID>` 是 Harness 内调用入口，实际执行发生在 Kali。输入、输出、词表和模板参数都应为 Kali 内路径；文件、FOFA/VPS凭据和本机环境变量不会自动传过去。返回 Harness 的是 stdout、stderr 和退出码。本机路径配置保留，切回“本机”后生效；选择 Kali 时缺失或未确认的工具不会回退到本机。
 
 连接探测异步执行，最多12秒/64KiB，并发请求共用在途探测；失败清除当前工具结果。成功观察90秒后过期，长暂停或时钟回退不重标为新结果。刷新页面或模型预检会重新探测；工具入口执行时仍实时连接并查找工具，SSH失败不重试或改信任。远程预检不假装检查过本机技能资源，缺失项单列。工具就绪不代表所有技能、模板、FOFA/VPS或网络目标已配置。
+
+## 工具补充与调用
+
+2026-11-01在 Kali 普通用户目录 `~/.local/bin` 安装官方 Linux ARM64 发布文件：fscan 2.2.2、gogo 2.15.0、suo5 2.2.0、frpc/frps 0.71.1、chisel 1.12.0、dnsx 1.3.1、subfinder 2.17.0。每个下载的大小与 GitHub 发布资产 SHA256 摘要一致，安装前核对 ELF AArch64；这不是独立代码审计或签名认证。未使用 root、sudo、APT、额外 capabilities 或新服务。
+
+同时将 Kali 原有的 curl、wget、dig、OpenSSL、tcpdump、TShark、WhatWeb、Nikto、sqlmap、file、strings 加入环境适配目录及固定 SSH 入口。可在聊天要求使用 Kali 技能，或在 Shell 工作台运行：
+
+```sh
+kali-vm inventory
+kali-vm tool dnsx -version -duc
+kali-vm tool subfinder -version -duc
+kali-vm tool openssl version
+```
+
+所有已找到的25项均通过 Harness 固定入口实际执行过版本或帮助查询。Masscan 1.3.2 的 `--version` 正常打印版本后按上游源码退出1，入口保留该原始退出码；其余24项本次查询退出0。未执行目标扫描、实时抓包、隧道服务或提权；安装或发现工具不代表抓包权限、模板、词表和外部账户已配置。
+
+唯一未找到的 ksubdomain 保持不可用：检查的官方 v2.4.0 发布资产没有 Linux ARM64 版本，未安装 AMD64 文件，也未增加编译器进行源码构建。工具检索忽略相对和空 PATH 目录，再补充普通用户的绝对 bin 目录，避免把当前目录同名程序误认为已安装工具。
+
+公开备份只包含客户端、26项入口和[发布来源/摘要锁定清单](../work/harness-purge-vm/kali-tools-lock.json)，不含二进制和安装包。恢复公开源码后，Kali 中这些二进制仍需单独按清单安装；旧恢复点也未覆盖本次补充。
 
 ## 当前部署
 

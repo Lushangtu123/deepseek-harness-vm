@@ -50,6 +50,17 @@ export const TOOL_CATALOG = [
   { id: 'subfinder', label: 'subfinder', names: ['subfinder.exe', 'subfinder'] },
   { id: 'ksubdomain', label: 'ksubdomain', names: ['ksubdomain.exe', 'ksubdomain'] },
   { id: 'impacket', label: "impacket (folder or entrypoint)", names: ['impacket-secretsdump', 'impacket-secretsdump.exe', 'secretsdump.py', 'impacket'], adapt: [/^impacket-secretsdump$/, /^secretsdump\.py$/] },
+  { id: 'curl', label: 'curl', names: ['curl'] },
+  { id: 'wget', label: 'Wget', names: ['wget'] },
+  { id: 'dig', label: 'DNS dig', names: ['dig'] },
+  { id: 'openssl', label: 'OpenSSL', names: ['openssl'] },
+  { id: 'tcpdump', label: 'tcpdump', names: ['tcpdump'] },
+  { id: 'tshark', label: 'TShark', names: ['tshark'] },
+  { id: 'whatweb', label: 'WhatWeb', names: ['whatweb'] },
+  { id: 'nikto', label: 'Nikto', names: ['nikto'] },
+  { id: 'sqlmap', label: 'sqlmap', names: ['sqlmap'] },
+  { id: 'file', label: 'File type', names: ['file'] },
+  { id: 'strings', label: 'Strings', names: ['strings'] },
 ]
 
 const EMPTY = () => ({

@@ -4,7 +4,7 @@ import { lstatSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-export const KALI_TOOL_IDS = Object.freeze(['nmap','nuclei','masscan','fscan','gogo','suo5','frpc','frps','chisel','ffuf','httpx','dnsx','subfinder','ksubdomain','impacket'])
+export const KALI_TOOL_IDS = Object.freeze(['nmap', 'nuclei', 'masscan', 'fscan', 'gogo', 'suo5', 'frpc', 'frps', 'chisel', 'ffuf', 'httpx', 'dnsx', 'subfinder', 'ksubdomain', 'impacket', 'curl', 'wget', 'dig', 'openssl', 'tcpdump', 'tshark', 'whatweb', 'nikto', 'sqlmap', 'file', 'strings'])
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const short = value => typeof value === 'string' && value.length > 0 && value.length <= 160 && !/[\x00-\x1f\x7f]/.test(value)
 export function validateKaliInventory(value) {
